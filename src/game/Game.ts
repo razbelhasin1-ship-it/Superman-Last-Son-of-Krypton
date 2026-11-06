@@ -13,6 +13,7 @@ import { HeroController } from '../flight/HeroController.ts';
 import { HeroVisual } from '../hero/HeroVisual.ts';
 import { CameraRig } from '../camera/CameraRig.ts';
 import { RenderSystem, type QualityName } from '../render/RenderSystem.ts';
+import { AutoQuality } from '../render/AutoQuality.ts';
 import { atmoUniforms, sunDirectionForHour } from '../render/atmosphere.ts';
 import { CloudDeck } from '../render/clouds/CloudDeck.ts';
 import { TestGround } from '../world/TestGround.ts';
@@ -105,6 +106,8 @@ export class Game {
   private menuCooldown = 0;
   private hudWasVisible = true;
   day = 1;
+  /** Present when the graphics preset is "auto" (spec 12.1 quality scaler). */
+  readonly autoQuality: AutoQuality | null = null;
 
   constructor(
     canvas: HTMLCanvasElement,
@@ -120,6 +123,14 @@ export class Game {
     const q = params.quality ?? (this.settings.graphics === 'auto' ? 'high' : this.settings.graphics);
     const quality: QualityName = q === 'auto' ? 'high' : q;
     this.render = new RenderSystem(canvas, quality, { preserveDrawingBuffer: params.qa });
+    if (this.settings.graphics === 'auto' && !params.quality && !params.qa) {
+      const aq = new AutoQuality(quality);
+      aq.onChange = (preset) => {
+        if (preset !== this.render.quality.name) this.render.setQuality(preset);
+        this.onResize();
+      };
+      this.autoQuality = aq;
+    }
     this.input = new Input(canvas);
     this.input.invertY = this.settings.invertY;
     this.input.sensitivity = this.settings.mouseSensitivity;
@@ -215,6 +226,10 @@ export class Game {
     this.applyComfort();
     this.audio.volumes = { master: this.settings.masterVolume, music: this.settings.musicVolume, sfx: this.settings.sfxVolume };
     this.audio.applyVolumes();
+    // Graphics preset / resolution changes apply live.
+    const g = this.settings.graphics;
+    if (g !== 'auto' && g !== this.render.quality.name) this.render.setQuality(g);
+    this.onResize();
   }
 
   private spawnDefault(): void {
@@ -254,6 +269,7 @@ export class Game {
         const dt = (now - this.lastFrameTime) / 1000;
         this.lastFrameTime = now;
         this.fps += (1 / Math.max(dt, 1e-3) - this.fps) * 0.05;
+        if (this.state === 'play' || this.state === 'intro') this.autoQuality?.update(dt);
         this.loop.frame(dt);
         requestAnimationFrame(tick);
       };
@@ -273,7 +289,7 @@ export class Game {
   }
 
   private onResize(): void {
-    this.render.resize(window.innerWidth, window.innerHeight, this.settings.resolutionScale);
+    this.render.resize(window.innerWidth, window.innerHeight, this.settings.resolutionScale * (this.autoQuality?.scale ?? 1));
   }
 
   // ───────────────────────────────────────────────────────────── simulation step

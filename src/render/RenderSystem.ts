@@ -129,6 +129,8 @@ export class RenderSystem {
 
     this.sun = new DirectionalLight(0xffffff, T.sky.sunIntensity);
     this.sun.castShadow = true;
+    this.sun.shadow.autoUpdate = false;
+    this.sun.shadow.needsUpdate = true;
     this.sun.shadow.mapSize.set(this.quality.shadowSize, this.quality.shadowSize);
     this.sun.shadow.bias = -0.0004;
     this.sun.shadow.normalBias = 0.04;
@@ -231,6 +233,8 @@ export class RenderSystem {
     this.sun.shadow.mapSize.set(this.quality.shadowSize, this.quality.shadowSize);
     this.sun.shadow.map?.dispose();
     this.sun.shadow.map = null as never;
+    this.sun.shadow.needsUpdate = true;
+    this.shadowHalf = -1;
     this.rebuildChain();
     this.resize(this.width, this.height);
   }
@@ -255,6 +259,69 @@ export class RenderSystem {
   }
 
   /** Update sun light, atmosphere LUT and env map. `focus` = where the shadow frustum centres. */
+  // Shadow cache state (far mode re-renders only when the view really moved).
+  private readonly shadowCentre = new Vector3();
+  private shadowHalf = 60;
+  private readonly shadowSun = new Vector3();
+
+  /**
+   * Sun shadow frustum (spec 12.1 "out to ≈ 3 km"): one map whose coverage grows with the viewer's
+   * altitude — ±60 m of crisp hero shadow near the ground, up to ±1.6 km of tower shadows from high up.
+   * Centred ahead of the camera, snapped to shadow texels (no shimmer) and cached: far-mode maps are only
+   * re-rendered when the centre, size or sun moved enough to matter.
+   */
+  private updateShadowFrustum(lightDir: Vector3, focus: Vector3, viewerAlt: number): void {
+    const sh = this.sun.shadow;
+    const size = sh.mapSize.x;
+    const half = Math.min(1600, Math.max(60, 60 + Math.max(0, viewerAlt - 20) * 1.8));
+    // Far mode: centre where the camera's view ray meets the ground (clamped inside the box).
+    const dir = new Vector3(0, 0, -1).applyQuaternion(this.camera.quaternion);
+    const fwd = new Vector3(dir.x, 0, dir.z);
+    const hl = fwd.length();
+    if (hl > 1e-6) fwd.divideScalar(hl);
+    let centre: Vector3;
+    if (half <= 120) centre = focus.clone();
+    else {
+      const ahead = dir.y < -0.05 ? Math.min(half * 0.85, viewerAlt * (hl / -dir.y)) : half * 0.7;
+      const cp = this.camera.position;
+      centre = new Vector3(cp.x, focus.y - viewerAlt * 0.5, cp.z).addScaledVector(fwd, ahead);
+      centre.y = Math.max(0, cp.y - viewerAlt);
+    }
+    // Light-space basis; snap the centre to whole texels.
+    const L = lightDir.clone().normalize();
+    const right = new Vector3().crossVectors(L, Math.abs(L.y) > 0.99 ? new Vector3(1, 0, 0) : new Vector3(0, 1, 0)).normalize();
+    const up = new Vector3().crossVectors(right, L).normalize();
+    const texel = (2 * half) / size;
+    const cr = Math.round(centre.dot(right) / texel) * texel;
+    const cu = Math.round(centre.dot(up) / texel) * texel;
+    const cl = centre.dot(L);
+    centre.copy(right).multiplyScalar(cr).addScaledVector(up, cu).addScaledVector(L, cl);
+    const near = half <= 120;
+    const moved = centre.distanceTo(this.shadowCentre);
+    const resized = Math.abs(half - this.shadowHalf) / this.shadowHalf;
+    const sunMoved = L.angleTo(this.shadowSun);
+    const needs = near || moved > half * 0.04 || resized > 0.06 || sunMoved > 0.001;
+    if (!needs) return;
+    this.shadowCentre.copy(centre);
+    this.shadowHalf = half;
+    this.shadowSun.copy(L);
+    const reach = half + 1500;
+    this.sun.position.copy(centre).addScaledVector(L, reach);
+    this.sun.target.position.copy(centre);
+    this.sun.target.updateMatrixWorld();
+    const sc = sh.camera;
+    sc.left = -half;
+    sc.right = half;
+    sc.top = half;
+    sc.bottom = -half;
+    sc.near = 1;
+    sc.far = reach * 2;
+    sc.updateProjectionMatrix();
+    sh.normalBias = Math.max(0.04, texel * 0.9);
+    sh.bias = near ? -0.0004 : -0.0002;
+    sh.needsUpdate = true;
+  }
+
   updateLighting(sunDir: Vector3, focus: Vector3, viewerAlt: number, dt: number): void {
     this.atmosphere.setSun(sunDir);
     const baked = this.atmosphere.update(this.renderer, viewerAlt);
@@ -267,10 +334,9 @@ export class RenderSystem {
       this.sun.color.setRGB(0.55, 0.62, 0.85);
       this.sun.intensity = 0.25 * night;
     }
-    const lightDir = night > 0.5 ? sunDir.clone().negate() : sunDir;
+    const lightDir = (night > 0.5 ? sunDir.clone().negate() : sunDir.clone());
     if (lightDir.y < 0.05) lightDir.setY(0.05).normalize();
-    this.sun.position.copy(focus).addScaledVector(lightDir, 1500);
-    this.sun.target.position.copy(focus);
+    this.updateShadowFrustum(lightDir, focus, viewerAlt);
     this.sunTarget.copy(focus);
     this.ambient.color.setRGB(0.02, 0.025, 0.04);
     this.ambient.intensity = night;
