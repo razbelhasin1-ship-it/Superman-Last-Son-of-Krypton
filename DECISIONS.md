@@ -13,3 +13,7 @@ One line per judgement call (date · area · decision · reason).
 - 2026-11-06 · clouds · Cumulus deck = layered lit sprite clusters (spec-allowed option) rather than raymarching: works from above/below/inside and stays affordable under software GL.
 - 2026-11-06 · sky · Single-scattering atmosphere baked into an equirect LUT on sun change, sampled by sky dome + fog (aerial perspective); analytic Preetham-style fallback.
 - 2026-11-06 · render · n8ao 2.0.1 half-res mode uses an MRT shim incompatible with three r187 (crash in setupRenderTarget) → AO always runs full-res.
+- 2026-11-06 · git · Tag pushes are refused by the git proxy (only the session branch may be pushed); gate tags `gate-N` are created locally and gate commits are identifiable by their `gate N:` subject.
+- 2026-11-06 · camera · Tier camera distances reduced ~35% from the spec's starting table (6/7.5/9/10.5/12/14/16 → 4.3/4.7/5.3/5.9/6.6/7.4/8.2 m) and the arm height is applied along the camera-local up axis: a prone hero seen end-on at 9 m read as a 3% speck; now his back and streaming cape read clearly.
+- 2026-11-06 · fx · Render-time FX timers advance by simulation time since the last rendered frame (identical in play; correct under virtual-time QA).
+- 2026-11-06 · flight · Vertical power launches may go supersonic at ground level but do not add collateral (shock cone points skyward); horizontal low-altitude supersonic flight still does.

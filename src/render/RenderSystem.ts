@@ -199,6 +199,9 @@ export class RenderSystem {
         c.aoSamples = 12;
         c.denoiseSamples = 6;
         c.denoiseRadius = 10;
+        // depthBufferType is not watched by n8ao's config proxy: rebuild its passes explicitly.
+        this.ao.configureSampleDependentPasses();
+        this.ao.configureEffectCompositer(DepthType.Log);
       }
       // n8ao 2.0.1's half-res MRT shim is incompatible with three r187 (DECISIONS.md): always full-res.
       this.ao.configuration.halfRes = false;

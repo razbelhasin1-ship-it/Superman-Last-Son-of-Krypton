@@ -75,7 +75,7 @@ async function openGame(query, size = { width: W, height: H }) {
 
 async function shot(page, file) {
   await ensureDir(path.dirname(file));
-  await page.screenshot({ path: file });
+  await page.screenshot({ path: file, timeout: 180000 });
   return file;
 }
 
@@ -208,7 +208,8 @@ async function main() {
     root,
     configFile: path.join(root, 'vite.config.ts'),
     logLevel: 'warn',
-    server: { host: '127.0.0.1', port: 5190, strictPort: false },
+    // No HMR / file watching: editing sources during a long capture must not reload the page.
+    server: { host: '127.0.0.1', port: 5190, strictPort: false, hmr: false, watch: null },
   });
   await server.listen();
   browser = await chromium.launch({

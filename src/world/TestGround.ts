@@ -25,6 +25,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { Rng } from '../core/rng.ts';
 import { BoxCollisionWorld } from './collision.ts';
 import { NOISE_GLSL, patchMaterial } from '../render/materials.ts';
+import { radialGroundGeometry } from './radialGround.ts';
 
 export const LAKE = { x0: 600, x1: 2600, z0: -800, z1: 800 };
 
@@ -45,6 +46,7 @@ export class TestGround implements WorldLike {
   private water: Mesh;
   private waterMat: MeshStandardMaterial;
   private time = { value: 0 };
+  private groundMesh: Mesh | null = null;
 
   constructor(seed: number) {
     this.group.name = 'TestGround';
@@ -65,8 +67,7 @@ export class TestGround implements WorldLike {
   }
 
   private makeGround(): Mesh {
-    const geo = new PlaneGeometry(90000, 90000, 1, 1);
-    geo.rotateX(-Math.PI / 2);
+    const geo = radialGroundGeometry(45000);
     const mat = new MeshStandardMaterial({ color: 0xffffff, roughness: 0.95, metalness: 0 });
     patchMaterial(mat, 'testground', (s) => {
       s.vertexShader = s.vertexShader
@@ -115,19 +116,21 @@ export class TestGround implements WorldLike {
     });
     const m = new Mesh(geo, mat);
     m.receiveShadow = true;
+    m.frustumCulled = false;
     m.name = 'ground';
+    this.groundMesh = m;
     // Lake bed.
     const bed = new Mesh(
-      new PlaneGeometry(LAKE.x1 - LAKE.x0, LAKE.z1 - LAKE.z0).rotateX(-Math.PI / 2),
+      new PlaneGeometry(LAKE.x1 - LAKE.x0, LAKE.z1 - LAKE.z0, 48, 40).rotateX(-Math.PI / 2),
       new MeshStandardMaterial({ color: 0x23302a, roughness: 1 }),
     );
     bed.position.set((LAKE.x0 + LAKE.x1) / 2, -4, (LAKE.z0 + LAKE.z1) / 2);
-    m.add(bed);
+    this.group.add(bed);
     return m;
   }
 
   private makeWater(): { water: Mesh; mat: MeshStandardMaterial } {
-    const geo = new PlaneGeometry(LAKE.x1 - LAKE.x0, LAKE.z1 - LAKE.z0, 1, 1).rotateX(-Math.PI / 2);
+    const geo = new PlaneGeometry(LAKE.x1 - LAKE.x0, LAKE.z1 - LAKE.z0, 96, 80).rotateX(-Math.PI / 2);
     const mat = new MeshStandardMaterial({ color: 0x1b4656, roughness: 0.05, metalness: 0.0 });
     const time = this.time;
     patchMaterial(mat, 'testwater', (s) => {
@@ -364,8 +367,10 @@ export class TestGround implements WorldLike {
     return inst;
   }
 
-  update(_camPos: Vector3, _heroPos: Vector3, _heroVel: Vector3, _dt: number, time: number): void {
+  update(camPos: Vector3, _heroPos: Vector3, _heroVel: Vector3, _dt: number, time: number): void {
     this.time.value = time;
+    // The radial ground follows the camera; its shading is world-locked.
+    if (this.groundMesh) this.groundMesh.position.set(camPos.x, 0, camPos.z);
     void this.water;
     void this.waterMat;
   }

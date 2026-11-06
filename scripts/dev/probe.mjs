@@ -4,7 +4,7 @@ import { chromium } from 'playwright';
 const root = new URL('../..', import.meta.url).pathname;
 const query = process.argv[2] ?? 'qa&quality=low';
 const [w, h] = (process.argv[3] ?? '640x360').split('x').map(Number);
-const server = await createServer({ root, configFile: root + 'vite.config.ts', logLevel: 'warn', server: { port: 5191, strictPort: false } });
+const server = await createServer({ root, configFile: root + 'vite.config.ts', logLevel: 'warn', server: { port: 5191, strictPort: false, hmr: false, watch: null } });
 await server.listen();
 const browser = await chromium.launch({ headless: true, args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
 const page = await browser.newPage({ viewport: { width: w, height: h } });

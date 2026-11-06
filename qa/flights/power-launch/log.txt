@@ -1,0 +1,2 @@
+release charge at t=1.60
+reached cloud deck (1500 m) at t=3.30s

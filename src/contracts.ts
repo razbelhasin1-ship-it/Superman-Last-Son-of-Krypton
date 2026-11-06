@@ -114,3 +114,78 @@ export interface StatsSnapshot {
   heroAlt: number;
   tier: number;
 }
+
+// ───────────────────────────────────────────────────────────── world (owned by src/world/)
+
+export type CityTier = 'UPTOWN' | 'MIDTOWN' | 'DOWNTOWN' | 'ISLAND';
+
+export interface DistrictInfo {
+  slug: string;
+  name: string;
+  tier: CityTier;
+  /** Representative centre (x, z). */
+  x: number;
+  z: number;
+}
+
+export interface LandmarkInfo {
+  slug: string;
+  name: string;
+  district: string;
+  tier: CityTier;
+  x: number;
+  z: number;
+  /** Approximate height of the landmark's top (m) — for the QA photo tour and discovery radius. */
+  height: number;
+  /** Radius used for "discovered" HUD popups. */
+  radius: number;
+  /** Suggested approach pose for screenshots: camera position + target. */
+  view?: { from: [number, number, number]; to: [number, number, number] };
+}
+
+/**
+ * Anything the game can fly around in: the gate-1 test ground or the full city.
+ * `update` streams chunks / selects LODs around the camera and animates world shaders.
+ */
+export interface WorldLike {
+  readonly group: Object3D;
+  readonly collision: CollisionWorld & {
+    addBox(b: BoxCollider): number;
+    removeTagged(prefix: string): void;
+    readonly waterLevel: number;
+  };
+  update(camPos: Vector3, heroPos: Vector3, heroVel: Vector3, dt: number, time: number): void;
+  activeChunks(): number;
+  /** Optional richer API (the city implements these). */
+  readonly landmarks?: readonly LandmarkInfo[];
+  readonly districts?: readonly DistrictInfo[];
+  districtAt?(x: number, z: number): DistrictInfo | null;
+  /** 0 = day … 1 = night (window lights, street lights, neon). */
+  setNight?(night: number): void;
+  /** Resolves once everything around `p` (radius r) is generated and uploaded. */
+  whenStreamed?(p: Vector3, r: number): Promise<void>;
+  /** Hero spawn on the ground for `?play` without intro. */
+  readonly spawn?: Vector3;
+}
+
+// ───────────────────────────────────────────────────────────── hero body (owned by src/hero/)
+
+/** The skinned, baked hero body bound to the HeroVisual rig (gate 2 replaces the greybox). */
+export interface HeroBody {
+  readonly object: Object3D;
+  /** 0 = open … 1 = closed. */
+  setBlink(v: number): void;
+  /** 0..1 heat-vision glow in the eyes (also lights face/chest). */
+  setEyeGlow(v: number, color?: [number, number, number]): void;
+  /** Gaze offset in radians (eye saccades / look-at), relative to the head. */
+  setGaze(yaw: number, pitch: number): void;
+  /** 0..1 subtle smile (cinematic acting). */
+  setSmile(v: number): void;
+  /** Emblem glow (solar charge 0..1). */
+  setEmblemGlow(v: number): void;
+  dispose(): void;
+}
+
+// ───────────────────────────────────────────────────────────── audio (owned by src/audio/)
+
+export type MusicState = 'silent' | 'menu' | 'intro' | 'hover' | 'flight' | 'speed' | 'incident' | 'triumph';

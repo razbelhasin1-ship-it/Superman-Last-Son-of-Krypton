@@ -50,6 +50,12 @@ export const atmoUniforms: Record<string, IUniform> = {
   uAtmoTime: { value: 0 },
   uAtmoCloudShadow: { value: 0 },
   uAtmoNight: { value: 0 },
+  // three.js refreshes these for every material with `fog: true`; our chunks ignore them, but custom
+  // ShaderMaterials must still own them.
+  fogColor: { value: new Color(1, 1, 1) },
+  fogNear: { value: 1 },
+  fogFar: { value: 2 },
+  fogDensity: { value: 0 },
 };
 
 export const ATMO_GLSL = /* glsl */ `

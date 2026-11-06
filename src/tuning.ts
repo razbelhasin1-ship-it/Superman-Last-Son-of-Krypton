@@ -17,13 +17,13 @@ export interface TierDef {
 
 export const T = {
   tiers: [
-    { name: 'HOVER', speed: 6, k: 9.0, fov: 62, dist: 6, reachTime: 0 },
-    { name: 'GLIDE', speed: 40, k: 7.5, fov: 66, dist: 7.5, reachTime: 0.5 },
-    { name: 'CRUISE', speed: 120, k: 4.39, fov: 72, dist: 9, reachTime: 0.8 },
-    { name: 'DASH', speed: 340, k: 3.48, fov: 82, dist: 10.5, reachTime: 1.0 },
-    { name: 'SUPERSONIC', speed: 1000, k: 2.33, fov: 98, dist: 12, reachTime: 1.5 },
-    { name: 'BULLET', speed: 2400, k: 1.69, fov: 110, dist: 14, reachTime: 2.0 },
-    { name: 'BURST', speed: 6000, k: 5.67, fov: 120, dist: 16, reachTime: 0.6 },
+    { name: 'HOVER', speed: 6, k: 9.0, fov: 62, dist: 4.3, reachTime: 0 },
+    { name: 'GLIDE', speed: 40, k: 7.5, fov: 66, dist: 4.7, reachTime: 0.5 },
+    { name: 'CRUISE', speed: 120, k: 4.39, fov: 72, dist: 5.3, reachTime: 0.8 },
+    { name: 'DASH', speed: 340, k: 3.48, fov: 82, dist: 5.9, reachTime: 1.0 },
+    { name: 'SUPERSONIC', speed: 1000, k: 2.33, fov: 98, dist: 6.6, reachTime: 1.5 },
+    { name: 'BULLET', speed: 2400, k: 1.69, fov: 110, dist: 7.4, reachTime: 2.0 },
+    { name: 'BURST', speed: 6000, k: 5.67, fov: 120, dist: 8.2, reachTime: 0.6 },
   ] as TierDef[],
 
   flight: {
@@ -35,9 +35,9 @@ export const T = {
     /** Deceleration rate when a lower tier is selected while thrusting. */
     tierDownK: 2.2,
     /** Brake: decel = min(brakeAccel + brakeAccelPerSpeed·v, brakeK·v) — ≈0.5 s from cruise, ≈1.5 s from Mach 1. */
-    brakeAccel: 235,
-    brakeAccelPerSpeed: 0.02,
-    brakeK: 16,
+    brakeAccel: 240,
+    brakeAccelPerSpeed: 0.16,
+    brakeK: 20,
     /** Heading turn-rate limit (deg/s) by speed (m/s): long elegant arcs at speed. */
     turnSpeeds: [0, 6, 40, 120, 343, 1000, 2400, 6000],
     turnRates: [400, 220, 150, 90, 45, 30, 20, 12],
@@ -133,6 +133,8 @@ export const T = {
 
   camera: {
     heightOffset: 1.2,
+    /** Extra arm height when the hero is prone (look down onto his back and cape). */
+    proneHeight: 1.75,
     shoulder: 0.6,
     posLag: 0.12,
     rotLag: 0.08,
@@ -180,7 +182,9 @@ export const T = {
     flutterFreqMax: 12,
     flutterAmp: 22,
     /** Fraction of body rotation the cloth resists (lag on turns). */
-    rotationInertia: 0.65,
+    rotationInertia: 0.38,
+    /** Soft pull toward the draped rest shape (1/s²); keeps the cape on the back. */
+    shapeStiffness: 7,
     accelInertia: 0.5,
     accelMax: 70,
     waveSpeed: 9,

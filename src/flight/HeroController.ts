@@ -63,7 +63,10 @@ export class HeroController {
   private jumpPending = false;
   private jumpHold = 0;
   private launchTimer = 0;
-  private postLaunch = 0;
+  /** Seconds left in the post-launch phase (power launch momentum). */
+  postLaunch = 0;
+  /** Charge (0..1) of the most recent power launch. */
+  lastLaunchCharge = 0;
   private autoRise = 0;
   landingKind: LandingKind = 'soft';
   landingSpeed = 0;
@@ -378,6 +381,7 @@ export class HeroController {
     this.vel.copy(this.dir).multiplyScalar(this.speed);
     this.launchTimer = lerp(TK.launchHoldMin, TK.launchHoldMax, c);
     this.postLaunch = 3;
+    this.lastLaunchCharge = c;
     this.setMode('flight');
     this.events.emit('takeoff', { kind: 'launch', pos: this.feet(), charge: c });
     this.events.emit('shake', { amount: 0.5 + c * 0.6 });

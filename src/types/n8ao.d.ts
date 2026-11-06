@@ -32,5 +32,7 @@ declare module 'n8ao' {
     constructor(scene: Scene, camera: Camera, width?: number, height?: number);
     configuration: N8AOConfiguration;
     setQualityMode(mode: 'Performance' | 'Low' | 'Medium' | 'High' | 'Ultra'): void;
+    configureSampleDependentPasses(): void;
+    configureEffectCompositer(depthBufferType?: number, ortho?: boolean): void;
   }
 }
