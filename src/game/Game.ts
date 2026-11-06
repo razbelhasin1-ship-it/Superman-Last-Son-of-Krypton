@@ -14,6 +14,7 @@ import { HeroVisual } from '../hero/HeroVisual.ts';
 import { CameraRig } from '../camera/CameraRig.ts';
 import { RenderSystem, type QualityName } from '../render/RenderSystem.ts';
 import { AutoQuality } from '../render/AutoQuality.ts';
+import { applyHeroLook, heroLookUniforms, updateHeroLook } from '../render/heroLook.ts';
 import { atmoUniforms, sunDirectionForHour } from '../render/atmosphere.ts';
 import { CloudDeck } from '../render/clouds/CloudDeck.ts';
 import { TestGround } from '../world/TestGround.ts';
@@ -108,6 +109,9 @@ export class Game {
   day = 1;
   /** Present when the graphics preset is "auto" (spec 12.1 quality scaler). */
   readonly autoQuality: AutoQuality | null = null;
+  /** Hero readability fill/rim uniforms (exposed for A/B QA). */
+  readonly heroLook = heroLookUniforms;
+  heroLookScale = 1;
 
   constructor(
     canvas: HTMLCanvasElement,
@@ -141,6 +145,7 @@ export class Game {
     this.hero.autoCruise = this.settings.autoCruise;
     this.visual = new HeroVisual();
     this.render.scene.add(this.visual.root);
+    applyHeroLook(this.visual.root);
     this.rig = new CameraRig(this.render.camera, this.world.collision);
     this.applyComfort();
 
@@ -414,6 +419,11 @@ export class Game {
     this.world.update(cam.position, this.hero.pos, this.hero.vel, frameDt * this.worldTimeScale, this.worldTime);
     this.updateLighting(frameDt);
     const night = atmoUniforms.uAtmoNight!.value as number;
+    updateHeroLook(cam, this.sunDir, night);
+    if (this.heroLookScale !== 1) {
+      this.heroLook.uHeroFill!.value = (this.heroLook.uHeroFill!.value as number) * this.heroLookScale;
+      this.heroLook.uHeroRim!.value = (this.heroLook.uHeroRim!.value as number) * this.heroLookScale;
+    }
     const a = this.render.atmosphere;
     this.clouds.update(
       cam,

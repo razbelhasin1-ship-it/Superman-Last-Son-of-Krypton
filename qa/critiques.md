@@ -40,3 +40,7 @@ One line per reviewed image: what is wrong → what will change. Newest first wi
 - `qa/shots/ui-photo.png` — **good**: free camera, golden filter, depth of field on the hero, compact panel at the bottom.
 - v1 — Esc that resumed was re-queued as a pause press (menu listener runs before input's) → stale presses cleared on resume + 0.3 s pause-key cooldown.
 
+## Render (my modules)
+- `qa/shots/shadows-900m.png` — **good**: altitude-adaptive sun shadow (±1.2 km here) gives the tower field long late-afternoon shadows; near-ground framing unchanged.
+- `qa/shots/herolook-ab.png` (off | on, backlit and canyon) — **good**: hero-only fill + rim lifts the silhouette off a hazy backlit sky and keeps the cape red against shaded facades without looking lit-on.
+
