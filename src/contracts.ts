@@ -141,6 +141,8 @@ export interface LandmarkInfo {
   radius: number;
   /** Suggested approach pose for screenshots: camera position + target. */
   view?: { from: [number, number, number]; to: [number, number, number] };
+  /** One-line description for the discovery popup. */
+  blurb?: string;
 }
 
 /**

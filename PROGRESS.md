@@ -12,20 +12,21 @@ Gate checklist (spec 13). A gate passes only when every check passes and evidenc
 - **PASSED** — evidence `qa/shots/smoke.png`
 
 ## Gate 1 — Flight slice
-- [ ] Greybox hero on the real rig + Verlet cape
-- [ ] Flight model 7.1–7.4 (tiers, heading rate limit, bank, barrel roll, power-dive, brake, takeoffs, leap, landings)
-- [ ] Camera 7.5 (spring arm, tier FOV/distance, FOV kick, collision)
-- [ ] Speed sensation 7.6 (streaks, CA, vignette, motion blur, wind quads, near-miss, sonic boom, surface FX, clouds)
-- [ ] Sky + cloud deck + ground plane with scale props
+- [x] Greybox hero on the real rig (65 bones, aim-based poses, springs, procedural layers) + Verlet cape (14×26, wind, inertia, crack waves, shape matching)
+- [x] Flight model 7.1–7.4 (7 tiers, heading rate limit, bank, barrel roll, power-dive, brake, hover-lift, power launch w/ deck punch-through, leap, soft/hero/crater landings, glancing slides, near-miss, Mach boom)
+- [x] Camera 7.5 (relative spring arm, tier FOV/distance, FOV kick, collision sweep, roll share, trauma shake, cinematic + blend to chase)
+- [x] Speed sensation 7.6 (streaks, CA, vignette/tunnel, reprojection motion blur, wind quads, near-miss whoosh, vapour cone + shock rings, ground skim FX, cloud mist + burst)
+- [x] Sky (single-scattering LUT) + cumulus deck + camera-following radial ground with scale props (towers, pillars, trees, cars, lake)
 - [x] 7.8.1 vitest flight integrator tests (tiers ±15%, overshoot ≤3%, frame-rate identical, no tunnelling at 6,000 m/s)
-- [ ] 7.8.2 scripted flights + critiques
-- [ ] 7.8.3 10-second test
+- [x] 7.8.2 scripted flights + critiques — all eight read "good" (`qa/critiques.md`, sheets in `qa/sheets/flight-*.png`)
+- [x] 7.8.3 10-second test — canyon entry 5.6 s at DASH, Mach 1 at 7.2 s, zero console errors (`qa/sheets/flight-ten-second.png`)
+- **PASSED** — best frame `qa/flights/ten-second/frame-036.png` (Mach 1 shock ring in the canyon)
 
 ## Gate 2 — Hero & entry flow
 - [ ] Final hero mesh (SDF bake), suit materials, emblem, belt, boots, face, hair
 - [ ] Hero gallery `?hero` + mismatch list empty
-- [ ] Main menu (5.1) + 3 aspect screenshots
-- [ ] Play sequence (5.2) contact sheet matches storyboard
+- [x] Main menu (5.1) + 3 aspect screenshots (`qa/shots/menu-{16x9,16x10,21x9}.png`, interactive ≈0.15 s warm)
+- [ ] Play sequence (5.2) contact sheet matches storyboard (framing/timing ✓ `qa/sheets/intro-vs-storyboard.png`; needs final face)
 - [ ] Handoff (5.3)
 
 ## Gate 3 — Metropolis

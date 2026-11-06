@@ -249,7 +249,17 @@ export class Cape {
     const gx = g.x;
     const gy = g.y;
     const gz = g.z;
-    const acc = new Vector3().copy(accWorld).applyQuaternion(invQ).multiplyScalar(-C.accelInertia);
+    // Fictitious force from the body's acceleration. Along the velocity it is kept (boost surge, brake
+    // flare); across it (turns, pull-outs) the airstream dominates real cloth at speed, so it fades out —
+    // otherwise a hard pull-out at cruise flips the cape up over the head.
+    const accW = new Vector3().copy(accWorld);
+    if (speed > 1e-3) {
+      const vh = _v2.copy(velWorld).divideScalar(speed);
+      const along = accW.dot(vh);
+      const fade = 1 / (1 + (speed / C.accelPerpFade) ** 2);
+      accW.addScaledVector(vh, -along).multiplyScalar(fade).addScaledVector(vh, along);
+    }
+    const acc = accW.applyQuaternion(invQ).multiplyScalar(-C.accelInertia);
     const al = acc.length();
     if (al > C.accelMax) acc.multiplyScalar(C.accelMax / al);
     // Relative wind (model space), saturated magnitude.

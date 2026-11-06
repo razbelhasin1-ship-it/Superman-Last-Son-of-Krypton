@@ -3,7 +3,7 @@
  * Fixed 60 Hz simulation (`step`) + interpolated rendering (`frame`).
  */
 import { Matrix4, Vector3 } from 'three';
-import type { GameEventMap, StatsSnapshot } from '../contracts.ts';
+import type { GameEventMap, PowersHost, PowersSystem, StatsSnapshot, WorldLike } from '../contracts.ts';
 import { EventBus } from '../core/events.ts';
 import { FixedLoop } from '../core/loop.ts';
 import { Input, VirtualPad, emptyFrame, type InputFrame } from '../core/input.ts';
@@ -15,7 +15,7 @@ import { CameraRig } from '../camera/CameraRig.ts';
 import { RenderSystem, type QualityName } from '../render/RenderSystem.ts';
 import { atmoUniforms, sunDirectionForHour } from '../render/atmosphere.ts';
 import { CloudDeck } from '../render/clouds/CloudDeck.ts';
-import { TestGround, type WorldLike } from '../world/TestGround.ts';
+import { TestGround } from '../world/TestGround.ts';
 import { FxDirector } from '../fx/FxDirector.ts';
 import { AudioEngine } from '../audio/AudioEngine.ts';
 import { Hud } from '../ui/Hud.ts';
@@ -27,6 +27,7 @@ import { DofEffect, GradeEffect } from '../fx/CinemaEffects.ts';
 import { Menu } from '../ui/Menu.ts';
 import { IntroDirector } from '../intro/IntroDirector.ts';
 import { T } from '../tuning.ts';
+import { clamp, expFactor } from '../core/math.ts';
 
 export type GameState = 'boot' | 'menu' | 'intro' | 'play' | 'paused' | 'gallery';
 
@@ -69,6 +70,20 @@ export class Game {
   private scriptLogLines: string[] = [];
   collateral = 0;
   hope = 0;
+  /** Every hope/collateral change, for the results card and the Daily Planet. */
+  readonly deeds: { t: number; kind: 'hope' | 'collateral'; amount: number; reason: string }[] = [];
+  /** World time runs slower than the hero's during focus / the power wheel. */
+  worldTimeScale = 1;
+  private worldTimeTarget = 1;
+  worldTime = 0;
+  powers: PowersSystem | null = null;
+  readonly run = { topSpeed: 0, distance: 0, booms: 0, flightTime: 0 };
+  private readonly discovered = new Set<string>();
+  private districtSlug = '';
+  private districtCandidate = '';
+  private districtHold = 0;
+  private worldCheckT = 0;
+  private lastHudTime = 0;
   private lastFxTime = 0;
   readonly dof = new DofEffect();
   readonly grade = new GradeEffect();
@@ -115,7 +130,8 @@ export class Game {
 
     this.hud = new Hud(ui);
     this.fx.onHint = (id, text) => this.hud.hint(id, text, 5);
-    this.fx.onCollateral = (a) => (this.collateral += a);
+    this.fx.onCollateral = (a, reason) => this.addCollateral(a, reason ?? 'boom');
+    this.events.on('sonicBoom', () => this.run.booms++);
     this.intro = new IntroDirector({
       hero: this.hero,
       visual: this.visual,
@@ -239,6 +255,9 @@ export class Game {
       return;
     }
     this.time += dt;
+    this.worldTimeScale += (this.worldTimeTarget - this.worldTimeScale) * expFactor(14, dt);
+    const wdt = dt * this.worldTimeScale;
+    this.worldTime += wdt;
     if (this.script) {
       const t = this.scriptSteps * dt;
       this.script.tick(this.scriptHost, t, dt);
@@ -267,6 +286,12 @@ export class Game {
     }
     if (this.state === 'play') {
       this.hero.step(this.frameIn, this.rig, dt);
+      this.powers?.step(dt, wdt, this.frameIn);
+      this.run.topSpeed = Math.max(this.run.topSpeed, this.hero.speed);
+      if (this.hero.mode !== 'ground') {
+        this.run.distance += this.hero.speed * dt;
+        this.run.flightTime += dt;
+      }
     }
     this.visual.step(this.hero, dt);
     this.rig.step(dt, this.hero);
@@ -275,7 +300,7 @@ export class Game {
     this.stepViewProjFromRig();
     this.havePrevVP = true;
     this.fx.step(dt);
-    if (T.sky.timeFlows && !this.params.qa) this.hour = (this.hour + dt * (24 / (T.sky.dayMinutes * 60))) % 24;
+    if (T.sky.timeFlows && !this.params.qa) this.hour = (this.hour + wdt * (24 / (T.sky.dayMinutes * 60))) % 24;
     if (this.hero.mode === 'flight' && this.hero.dir.y < -0.5 && this.hero.speed > 60 && this.hero.altitude > 400) {
       this.hud.hint('pullup', 'Pull up — S / Space to level out', 4);
     }
@@ -286,7 +311,8 @@ export class Game {
     this.stepViewProjFromRig();
     this.prevViewProj.copy(this.stepViewProj);
     this.havePrevVP = true;
-    this.lastFxTime = this.time;
+    this.lastFxTime = this.worldTime;
+    this.lastHudTime = this.time;
   }
 
   private stepViewProjFromRig(): void {
@@ -313,7 +339,7 @@ export class Game {
     this.visual.frame(alpha);
     this.rig.frame(alpha);
     const cam = this.render.camera;
-    this.world.update(cam.position, this.hero.pos, this.hero.vel, frameDt, this.time);
+    this.world.update(cam.position, this.hero.pos, this.hero.vel, frameDt * this.worldTimeScale, this.worldTime);
     this.updateLighting(frameDt);
     const night = atmoUniforms.uAtmoNight!.value as number;
     const a = this.render.atmosphere;
@@ -327,21 +353,31 @@ export class Game {
     );
     // FX timers advance by *simulation* time since the last rendered frame (identical in real-time
     // play; correct under virtual-time QA where many steps elapse between renders).
-    const fxDt = Math.max(0, Math.min(0.5, this.time - this.lastFxTime));
-    this.lastFxTime = this.time;
+    // Particles and other world FX follow *world* time (they hang in the air during focus).
+    const fxDt = clamp(this.worldTime - this.lastFxTime, 0, 0.5);
+    this.lastFxTime = this.worldTime;
+    const hudDt = clamp(this.time - this.lastHudTime, 0, 0.5);
+    this.lastHudTime = this.time;
     this.fx.frame(fxDt, cam, this.havePrevVP ? this.prevViewProj : null, night);
+    this.powers?.frame(hudDt);
     this.render.sky.setTime(this.time);
     this.render.vignette.darkness = T.fx.vignetteBase + T.fx.vignetteSpeed * Math.min(1, this.hero.speed / 2400);
     this.render.render(frameDt);
-    if (this.state === 'play' || this.state === 'intro') this.hud.update(
-      fxDt,
-      this.hero.speed,
-      this.hero.effTier,
-      this.hero.tier,
-      this.hero.altitude,
-      this.hero.burstTime / T.flight.burstMax,
-      this.hero.burstCooldown,
-    );
+    if (this.state === 'play' || this.state === 'intro') {
+      this.hud.update(
+        hudDt,
+        this.hero.speed,
+        this.hero.effTier,
+        this.hero.tier,
+        this.hero.altitude,
+        this.hero.burstTime / T.flight.burstMax,
+        this.hero.burstCooldown,
+      );
+      this.hud.updateCompass(this.rig.yaw, this.hero.pos.x, this.hero.pos.z);
+      this.hud.setMeters(this.hope, this.collateral);
+      this.hud.setIdle(this.state === 'play' && this.hero.idleTime > T.hud.idleFadeAfter ? 1 : 0);
+      if (this.state === 'play') this.checkPlaces(hudDt);
+    }
     if (this.debug) {
       const s = this.render.lastStats;
       this.debug.setStats(
@@ -349,6 +385,91 @@ export class Game {
           `mode ${this.hero.mode}  ${(this.hero.speed * 3.6).toFixed(0)} km/h  tier ${this.hero.effTier}  alt ${this.hero.altitude.toFixed(0)} m\n` +
           `clouds ${this.clouds.visibleCount}  mist ${this.fx.mist01.toFixed(2)}`,
       );
+    }
+  }
+
+  // ───────────────────────────────────────────────────────────── powers host
+
+  /** Slow the world (focus 0.15, power wheel 0.2); the hero keeps full speed. Eased, never snaps. */
+  setWorldTimeScale(scale: number): void {
+    this.worldTimeTarget = clamp(scale, 0.02, 1);
+  }
+
+  addHope(amount: number, reason: string): void {
+    if (!(amount > 0)) return;
+    this.hope += amount;
+    this.deeds.push({ t: this.time, kind: 'hope', amount, reason });
+  }
+
+  addCollateral(amount: number, reason: string): void {
+    if (!(amount > 0)) return;
+    this.collateral += amount;
+    this.deeds.push({ t: this.time, kind: 'collateral', amount, reason });
+  }
+
+  /** The adapter handed to `createPowers(host)` (src/powers/). */
+  get powersHost(): PowersHost {
+    const g = this;
+    return {
+      hero: g.hero,
+      visual: g.visual,
+      rig: g.rig,
+      camera: g.render.camera,
+      scene: g.render.scene,
+      events: g.events,
+      world: g.world,
+      fx: g.fx,
+      audio: g.audio,
+      hud: g.hud,
+      setWorldTimeScale: (s) => g.setWorldTimeScale(s),
+      time: () => g.time,
+      addHope: (a, r) => g.addHope(a, r),
+      addCollateral: (a, r) => g.addCollateral(a, r),
+    };
+  }
+
+  attachPowers(system: PowersSystem): void {
+    this.powers?.dispose?.();
+    this.powers = system;
+  }
+
+  // ───────────────────────────────────────────────────────────── places (discovery, districts, compass)
+
+  private checkPlaces(dt: number): void {
+    this.worldCheckT -= dt;
+    if (this.worldCheckT > 0) return;
+    this.worldCheckT = 0.25;
+    const h = this.hero.pos;
+    const lms = this.world.landmarks;
+    if (lms && lms.length) {
+      // Discovery: inside the landmark's radius (or above it within its height + 150 m).
+      for (const lm of lms) {
+        if (this.discovered.has(lm.slug)) continue;
+        const d = Math.hypot(h.x - lm.x, h.z - lm.z);
+        if (d < lm.radius && h.y < lm.height + 400) {
+          this.discovered.add(lm.slug);
+          this.hud.discovery(lm.name, lm.blurb ?? '', this.discovered.size, lms.length);
+          this.audio.whoosh(0.25, 0, 0.5);
+        }
+      }
+      // Compass: the eight nearest undiscovered landmarks.
+      const near = lms
+        .filter((l) => !this.discovered.has(l.slug))
+        .map((l) => ({ l, d: Math.hypot(h.x - l.x, h.z - l.z) }))
+        .sort((a, b) => a.d - b.d)
+        .slice(0, 8);
+      this.hud.clearCompassMarkers('landmark');
+      for (const { l } of near) this.hud.setCompassMarker({ id: `lm:${l.slug}`, x: l.x, z: l.z, kind: 'landmark', label: l.name });
+    }
+    const dist = this.world.districtAt?.(h.x, h.z) ?? null;
+    const slug = dist?.slug ?? '';
+    if (slug !== this.districtCandidate) {
+      this.districtCandidate = slug;
+      this.districtHold = 0;
+    } else this.districtHold += 0.25;
+    if (dist && slug !== this.districtSlug && this.districtHold >= 0.75 && this.hero.altitude < 1200) {
+      this.districtSlug = slug;
+      this.hud.banner(`${dist.tier} — ${dist.name}`);
     }
   }
 

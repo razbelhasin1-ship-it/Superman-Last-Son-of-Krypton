@@ -7,6 +7,19 @@ One line per reviewed image: what is wrong → what will change. Newest first wi
 - (pre-fix) `qa/shots/smoke.png` — fully black: atmosphere LUT had NaN rows for downward rays (viewer exactly at the surface) → stable sphere intersection, clamped density heights, NaN guard, 25 km minimum haze path. Regression test in `tests/atmosphere.test.ts`.
 
 ## Gate 1 (flight slice) — iteration log
+- `flight-power-launch` v3 — **good**: 0.25–1.2 s charge reads (crouch, FOV dip), explosive 3,240 km/h launch with ground shock; a full charge now holds speed until it clears the deck, the shock front punches a visible ring ~0.35 s ahead, the hero stays readable through a short wet wipe and bursts into clear sky at 4.4 s before easing off.
+- `flight-power-launch` v2.5 — 1.2 s whiteout inside the deck: the launch speed decayed right at the cloud base and the hole opened after the camera was already in the mist → full-charge launches hold speed through the deck, hole punched with a 0.35 s lead, thin mist residue in the hole, explicit burst at the top.
+- `flight-ten-second` v3 — **good**: from 1,800 m the dive reads instantly, canyon entry at 5.6 s (DASH), Mach 1 at 7.2 s with shock ring + vapour pulse, low supersonic run through the towers with strong parallax; hint banner sat on the hero → hints moved to the upper third.
+- `flight-supersonic-3000` v3 — **good**: stable centred hero, sea of cumulus below, streaks + clouds whipping past give real speed at Mach 3; new tier FOVs feel wide without fisheye.
+- `flight-supersonic-200` v3 — **good**: towers flash past at Mach 3, horizon steady, no wedges/NaNs; hero small at FOV 102 but readable; hint overlapped him → moved.
+- `flight-brake-mach2` v3 — **good**: Mach 2 → hover in ≈2 s with a vapour burst, flip upright with arms out, cape swings forward then settles.
+- `flight-dive-landing` v3 — **good**: head-first dive, debris + crater + shockwave on impact, hero-landing pose in the crater; crater bowl shading still flat (polish gate 6).
+- `flight-cloud-flythrough` v3 — **good**: approach, wet wipe with mist streaks, burst out at the top into clean sky; full-res frames show no sky banding (only visible in downscaled thumbnails).
+- `flight-canyon-cruise` v3 — **good**: 120 m/s through the canyon, steady framing, strong parallax, hero always readable against the facades.
+- `flight-takeoff-lift` v4 — **good**: anticipation crouch, dust ring, smooth 6 m/s rise, lean leads the acceleration and the cape trails along his back through the pull-out (side-view probe: free edge stays ≤ 0.2 m above the hips instead of flipping to 1.8 m).
+- `flight-takeoff-lift` v3.5 — side-view probe (`scripts/dev/scriptside.mjs`, `capeprobe.mjs`) showed the real fault: levelling out of the climb is a ≈ −9 g turn and the cape's fictitious-acceleration term flipped it over his head for 0.4 s → inertia across the airflow now fades with speed (`cape.accelPerpFade`), along-flow inertia kept for brake flare / boost surge; regression test `tests/cape-inertia.test.ts`.
+- `flight-ten-second` v3.1 — Mach-1 vapour burst was a world-static opaque donut the camera ploughed through 15 ms later → particles inherit 90 % of the hero's velocity, thinner and translucent; the frame now shows a thin refracting shock ring.
+- `flight-takeoff-lift` v3 — dust ring on lift-off and climb read well, but at 2.0–2.4 s the hero stays upright at 140 km/h with the cape standing up like a board (lean lagged speed) → lean now anticipates the requested speed (`flight.leanLeadSpeed`).
 - `flight-takeoff-lift` v1 — camera orbits below a prone hero when pitching up (reads as flying on his back) → arm height along camera-local up; look-ahead moved to aim.
 - `flight-canyon-cruise` v1 — hero absent: look-ahead (12 m) pushed the arm pivot ahead of a 9 m arm, camera ended up in front of the hero → look-ahead now steers the aim only.
 - `flight-supersonic-3000` v1 — camera inside the hero at 1,000 m/s (same look-ahead bug) → fixed.

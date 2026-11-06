@@ -87,6 +87,8 @@ export class HeroController {
   private prevDirHeading = 0;
   yawRate = 0;
   flightPitch = 0;
+  /** Speed the pilot is asking for (drives lean anticipation). */
+  intentSpeed = 0;
 
   private boomArmed = true;
   private nearMissCooldown = 0;
@@ -116,6 +118,7 @@ export class HeroController {
     this.pos.y = this.world.supportHeight(p.x, p.z, p.y + 2) + HIP;
     this.vel.set(0, 0, 0);
     this.speed = 0;
+    this.intentSpeed = 0;
     this.heading = heading;
     this.headingV = 0;
     this.lean.reset(0);
@@ -128,6 +131,7 @@ export class HeroController {
     this.pos.copy(p);
     this.dir.copy(dir).normalize();
     this.speed = speed;
+    this.intentSpeed = speed;
     this.vel.copy(this.dir).multiplyScalar(speed);
     this.prevVel.copy(this.vel);
     this.boomArmed = speed < MACH1;
@@ -570,6 +574,7 @@ export class HeroController {
       else if (this.autoRise > 0) vT = T.takeoff.liftSpeed;
       else vT = Math.min(tierV, 25) * Math.min(1, dLen);
       vT = Math.min(vT, capSpeed);
+      this.intentSpeed = vT;
       let k: number;
       if (vT > this.speed) k = tiers[eff]!.k;
       else k = this.postLaunch > 0 ? T.takeoff.launchDecayK : F.tierDownK;
@@ -579,6 +584,7 @@ export class HeroController {
       this.speed += (0 - this.speed) * expFactor(k, dt);
       if (this.speed < 0.02) this.speed = 0;
     }
+    if (!hasInput || this.braking || this.diving || this.launchTimer > 0) this.intentSpeed = this.speed;
     if (this.postLaunch > 0) this.postLaunch -= dt;
     void prevSpeed;
 
@@ -817,7 +823,8 @@ export class HeroController {
       targetHeading = w > 0.5 ? dirHeading : camHeading;
       if (w > 0 && w < 1) targetHeading = this.heading + wrapAngle(dirHeading - this.heading) * w + wrapAngle(camHeading - this.heading) * (1 - w) * 0.5;
       headingOmega = lerp(8, 14, w);
-      targetLean = this.targetFlightLean(s);
+      // The body leans into intended acceleration before the speed arrives (anticipation, not lag).
+      targetLean = this.targetFlightLean(Math.max(s, Math.min(this.intentSpeed, s + F.leanLeadSpeed)));
       if (this.braking) targetLean = lerp(targetLean, 12 * DEG, smoothstep(0, 40, s));
       if (this.launchTimer > 0) targetLean = Math.PI / 2 - this.flightPitch;
 

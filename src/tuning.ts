@@ -56,6 +56,8 @@ export const T = {
     proneStart: 34,
     proneFull: 62,
     bodyOmega: 9,
+    /** How far (m/s) the body lean may run ahead of the actual speed toward the requested speed. */
+    leanLeadSpeed: 28,
     /** Hover vertical bob (visual only). */
     bobAmp: 0.03,
     bobHz: 0.4,
@@ -190,6 +192,8 @@ export const T = {
     shapeStiffness: 7,
     accelInertia: 0.5,
     accelMax: 70,
+    /** Speed (m/s) at which inertia across the airflow (turns) has faded to half. */
+    accelPerpFade: 15,
     waveSpeed: 9,
     waveStrength: 1.0,
     collisionMargin: 0.035,
@@ -220,6 +224,11 @@ export const T = {
     sunIntensity: 3.2,
     fogDensity: 0.000055,
     fogFalloff: 0.00042,
+  },
+
+  hud: {
+    /** Seconds without input before the HUD fades to a whisper. */
+    idleFadeAfter: 6,
   },
 };
 

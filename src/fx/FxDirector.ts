@@ -11,7 +11,7 @@ import type { CameraRig } from '../camera/CameraRig.ts';
 import type { AudioEngine } from '../audio/AudioEngine.ts';
 import type { HeroVisual } from '../hero/HeroVisual.ts';
 import type { CloudDeck } from '../render/clouds/CloudDeck.ts';
-import type { BoxCollisionWorld } from '../world/collision.ts';
+import type { CollisionWorld } from '../contracts.ts';
 import { ParticleSystem } from './Particles.ts';
 import { softTexture, sparkTexture, shardTexture } from './textures.ts';
 import { WindStreaks } from './WindStreaks.ts';
@@ -62,7 +62,7 @@ export class FxDirector {
   private readonly rig: CameraRig;
   private readonly audio: AudioEngine;
   private readonly visual: HeroVisual;
-  private readonly world: BoxCollisionWorld;
+  private readonly world: CollisionWorld;
   clouds: CloudDeck | null = null;
   /** Scripted mist (intro cloud burst) combined with the measured cloud density. */
   introMist = 0;
@@ -77,7 +77,7 @@ export class FxDirector {
     rig: CameraRig,
     audio: AudioEngine,
     visual: HeroVisual,
-    world: BoxCollisionWorld,
+    world: CollisionWorld,
     settings: Settings,
   ) {
     this.hero = hero;
@@ -134,11 +134,13 @@ export class FxDirector {
           o.x = pos.x + r.x * 1.5;
           o.y = pos.y + r.y * 1.5;
           o.z = pos.z + r.z * 1.5;
-          o.vx = r.x * 30;
-          o.vy = r.y * 30;
-          o.vz = r.z * 30;
+          // Carried with the hero at first (drag bleeds it off), so the camera doesn't plough through a
+          // world-static donut 15 ms later; thin and translucent — a vapour ring, not smoke.
+          o.vx = r.x * 30 + this.hero.vel.x * 0.9;
+          o.vy = r.y * 30 + this.hero.vel.y * 0.9;
+          o.vz = r.z * 30 + this.hero.vel.z * 0.9;
         },
-        { x: 0, y: 0, z: 0, life: 0.9, size0: 2, size1: 9, color: MIST, alpha: 0.5, drag: 3 },
+        { x: 0, y: 0, z: 0, life: 0.8, size0: 1.2, size1: 5, color: MIST, alpha: 0.22, drag: 3 },
       );
       // A vertical power launch throws its shock cone skyward: no collateral for that.
       const vertical = dir.y > 0.8;
