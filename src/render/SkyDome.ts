@@ -20,7 +20,7 @@ const FRAG = /* glsl */ `
 ${ATMO_GLSL}
 uniform float uSunDisc;
 uniform float uStarTime;
-uniform vec3 uMoonDir;
+uniform vec3 uAtmoMoonDir;
 uniform float uCirrus;
 varying vec3 vDir;
 ${NOISE_GLSL}
@@ -80,8 +80,8 @@ void main() {
   // Night: stars and moon.
   float night = uAtmoNight;
   if (night > 0.001 && d.y > -0.05) {
-    col += stars(d) * night * smoothstep(-0.05, 0.15, d.y);
-    float m = dot(d, normalize(uMoonDir));
+    col += stars(d) * smoothstep(0.55, 1.0, night) * smoothstep(-0.05, 0.15, d.y);
+    float m = dot(d, normalize(uAtmoMoonDir));
     float moon = smoothstep(cos(0.012), cos(0.0105), m);
     col += vec3(0.85, 0.88, 0.95) * moon * 1.8 * night;
     col += vec3(0.25, 0.3, 0.45) * pow(max(m, 0.0), 300.0) * 0.4 * night;
@@ -98,7 +98,6 @@ export class SkyDome extends Mesh {
     const uniforms: Record<string, IUniform> = {
       uSunDisc: { value: 1 },
       uStarTime: { value: 0 },
-      uMoonDir: { value: atmoUniforms.uAtmoSunDir!.value.clone().negate() },
       uCirrus: { value: 1 },
     };
     for (const k in atmoUniforms) uniforms[k] = atmoUniforms[k] as IUniform;

@@ -332,9 +332,11 @@ export class RenderSystem {
     // Moonlight keeps nights readable.
     if (night > 0.5) {
       this.sun.color.setRGB(0.55, 0.62, 0.85);
-      this.sun.intensity = 0.25 * night;
+      this.sun.intensity = T.sky.moonLight * night;
     }
-    const lightDir = (night > 0.5 ? sunDir.clone().negate() : sunDir.clone());
+    const lightDir = (night > 0.5 ? a.moonDir.clone() : sunDir.clone());
+    // Eye adaptation: lift exposure as night falls (only the tone-mapping pass reads it).
+    this.renderer.toneMappingExposure = 1 + night * (T.sky.nightExposure - 1);
     if (lightDir.y < 0.05) lightDir.setY(0.05).normalize();
     this.updateShadowFrustum(lightDir, focus, viewerAlt);
     this.sunTarget.copy(focus);
@@ -342,9 +344,18 @@ export class RenderSystem {
     this.ambient.intensity = night;
 
     this.envCooldown -= dt;
-    if ((baked || this.envVersion < 0) && (this.envCooldown <= 0 || this.envVersion < 0)) {
+    if (this.envForce || ((baked || this.envVersion < 0) && (this.envCooldown <= 0 || this.envVersion < 0))) {
+      this.envForce = false;
       this.refreshEnv();
     }
+  }
+
+  private envForce = false;
+
+  /** Time jumped (QA, photo-mode time of day): re-bake the sky and the env map on the next frame. */
+  requestSkyRefresh(): void {
+    this.atmosphere.dirty = true;
+    this.envForce = true;
   }
 
   refreshEnv(): void {

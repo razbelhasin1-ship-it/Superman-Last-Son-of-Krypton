@@ -56,6 +56,8 @@ export const atmoUniforms: Record<string, IUniform> = {
   uCloudParams: { value: new Vector4(0, 0, 24000, 0) },
   uCloudSun: { value: new Vector3(0, 1, 0) },
   uAtmoNight: { value: 0 },
+  /** Moon direction (opposite the sun, slightly tilted) — lights the night sky, clouds and city. */
+  uAtmoMoonDir: { value: new Vector3(0, 1, 0) },
   // three.js refreshes these for every material with `fog: true`; our chunks ignore them, but custom
   // ShaderMaterials must still own them.
   fogColor: { value: new Color(1, 1, 1) },
@@ -162,8 +164,11 @@ export function injectAtmo(uniforms: Record<string, IUniform>): void {
 const LUT_FRAG = /* glsl */ `
 precision highp float;
 uniform vec3 uSunDir;
+uniform vec3 uMoonDir;
 uniform float uViewerAlt;
 uniform float uSunI;
+uniform float uMoonI;
+uniform float uNight;
 varying vec2 vUv;
 const float PI = 3.14159265;
 const float RP = ${R_PLANET.toFixed(1)};
@@ -188,7 +193,7 @@ vec2 rs(vec3 ro, vec3 rd, float r) {
   float t1 = c / q;
   return vec2(min(t0, t1), max(t0, t1));
 }
-vec3 scatter(vec3 rd) {
+vec3 scatterLight(vec3 rd, vec3 uSunDir, float uSunI) {
   vec3 ro = vec3(0.0, RP + uViewerAlt, 0.0);
   vec2 pa = rs(ro, rd, RA);
   float tEnd = pa.y;
@@ -216,8 +221,9 @@ vec3 scatter(vec3 rd) {
     float dM = exp(-h / HM) * seg;
     odR += dR;
     odM += dM;
+    // In the planet's shadow only if the sun ray really hits the ground ahead (1e12 = no hit).
     vec2 lg = rs(p, uSunDir, RP);
-    if (lg.x > 0.0) continue;
+    if (lg.x > 0.0 && lg.x < 1e11) continue;
     vec2 la = rs(p, uSunDir, RA);
     float lseg = la.y / float(M);
     float lR = 0.0;
@@ -239,7 +245,12 @@ void main() {
   float s = (vUv.y - 0.5) * 2.0;
   float e = sign(s) * s * s * (PI * 0.5);
   vec3 rd = vec3(sin(az) * cos(e), sin(e), -cos(az) * cos(e));
-  vec3 c = scatter(rd);
+  vec3 c = scatterLight(rd, uSunDir, uSunI);
+  // Moonlit sky (artistically bright full moon opposite the sun) — keeps the night deep blue, not black.
+  if (uMoonI > 0.0 && uMoonDir.y > -0.2) c += scatterLight(rd, uMoonDir, uMoonI);
+  // Night floor: faint airglow at the zenith and warm city glow along the horizon.
+  float hz = pow(1.0 - min(abs(rd.y), 1.0), 5.0);
+  c += uNight * (vec3(0.0025, 0.0045, 0.011) * (1.0 - hz) + vec3(0.010, 0.0075, 0.0055) * hz);
   if (any(isnan(c)) || any(isinf(c))) c = vec3(0.0);
   gl_FragColor = vec4(c, 1.0);
 }
@@ -256,6 +267,7 @@ export class Atmosphere {
   private readonly quadCam = new OrthographicCamera(-1, 1, 1, -1, 0, 1);
   private readonly mat: ShaderMaterial;
   readonly sunDir = new Vector3(0.3, 0.7, 0.3).normalize();
+  readonly moonDir = new Vector3(0, 1, 0);
   readonly sunColor = new Color(1, 1, 1);
   readonly skyZenith = new Color();
   readonly skyHorizon = new Color();
@@ -281,8 +293,11 @@ export class Atmosphere {
       fragmentShader: LUT_FRAG,
       uniforms: {
         uSunDir: { value: this.sunDir },
+        uMoonDir: { value: this.moonDir },
         uViewerAlt: { value: 0 },
         uSunI: { value: 22 },
+        uMoonI: { value: 22 * T.sky.moonScale },
+        uNight: { value: 0 },
       },
       depthTest: false,
       depthWrite: false,
@@ -293,6 +308,8 @@ export class Atmosphere {
 
   setSun(dir: Vector3): void {
     this.sunDir.copy(dir).normalize();
+    // Full moon roughly opposite the sun, tilted toward the south so it never sits exactly overhead.
+    this.moonDir.set(-this.sunDir.x, -this.sunDir.y, -this.sunDir.z + 0.25).normalize();
   }
 
   /** Re-bake the LUT if the sun or viewer altitude moved enough. Returns true if baked. */
@@ -305,6 +322,7 @@ export class Atmosphere {
     this.lastSun.copy(this.sunDir);
     this.lastAlt = alt;
     (this.mat.uniforms.uViewerAlt as IUniform).value = alt;
+    (this.mat.uniforms.uNight as IUniform).value = 1 - smooth(-0.12, 0.08, this.sunDir.y);
     const prev = renderer.getRenderTarget();
     renderer.setRenderTarget(this.lut);
     renderer.render(this.quadScene, this.quadCam);
@@ -313,6 +331,7 @@ export class Atmosphere {
     atmoUniforms.uAtmoSunDir!.value.copy(this.sunDir);
     atmoUniforms.uAtmoSunColor!.value.copy(this.sunColor);
     atmoUniforms.uAtmoNight!.value = 1 - smooth(-0.12, 0.08, this.sunDir.y);
+    (atmoUniforms.uAtmoMoonDir!.value as Vector3).copy(this.moonDir);
     this.version++;
     return true;
   }
@@ -325,11 +344,19 @@ export class Atmosphere {
     const tr = (i: number) => Math.exp(-((BETA_R[i] as number) * od.r + BETA_M * 1.1 * od.m));
     const horizonFade = smooth(-0.06, 0.04, sun.y);
     this.sunColor.setRGB(tr(0) * horizonFade, tr(1) * horizonFade, tr(2) * horizonFade);
-    const z = scatterCpu(ro, new Vector3(0, 1, 0), sun);
+    const moon = this.moonDir;
+    const mk = T.sky.moonScale;
+    const both = (d: Vector3): [number, number, number] => {
+      const a = scatterCpu(ro, d, sun);
+      if (moon.y < -0.2) return a;
+      const b = scatterCpu(ro, d, moon);
+      return [a[0] + b[0] * mk, a[1] + b[1] * mk, a[2] + b[2] * mk];
+    };
+    const z = both(new Vector3(0, 1, 0));
     this.skyZenith.setRGB(z[0] * SKY_SCALE, z[1] * SKY_SCALE, z[2] * SKY_SCALE);
     const hzDir = new Vector3(-sun.x, 0.05, -sun.z);
     if (hzDir.lengthSq() < 1e-6) hzDir.set(1, 0.05, 0);
-    const h = scatterCpu(ro, hzDir.normalize(), sun);
+    const h = both(hzDir.normalize());
     this.skyHorizon.setRGB(h[0] * SKY_SCALE, h[1] * SKY_SCALE, h[2] * SKY_SCALE);
   }
 }
@@ -398,7 +425,7 @@ export function scatterCpu(ro: Vector3, rd: Vector3, sun: Vector3): [number, num
     odR += dR;
     odM += dM;
     const [lg] = raySphere(p, sun, R_PLANET);
-    if (lg > 0) continue;
+    if (lg > 0 && lg < 1e11) continue;
     const [, la] = raySphere(p, sun, R_ATMOS);
     const lseg = la / M;
     let lR = 0;

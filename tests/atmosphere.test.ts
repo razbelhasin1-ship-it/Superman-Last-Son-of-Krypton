@@ -30,4 +30,17 @@ describe('atmosphere scattering', () => {
     const morning = sunDirectionForHour(9);
     expect(morning.x).toBeGreaterThan(0); // east (+X) in the morning
   });
+
+  it('keeps a lit twilight sky when the sun sits on or just below the horizon', () => {
+    const ro = new Vector3(0, 6371e3 + 2, 0);
+    for (const el of [0, -2, -4]) {
+      const e = (el * Math.PI) / 180;
+      const sun = new Vector3(-Math.cos(e), Math.sin(e), 0).normalize();
+      const zenith = scatterCpu(ro, new Vector3(0, 1, 0), sun);
+      const sunSide = scatterCpu(ro, new Vector3(-1, 0.05, 0).normalize(), sun);
+      // Upper air is still sunlit: never pitch black right after sunset.
+      expect(zenith[2]).toBeGreaterThan(1e-4);
+      expect(sunSide[0]).toBeGreaterThan(zenith[0]);
+    }
+  });
 });

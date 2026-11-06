@@ -200,6 +200,9 @@ export const T = {
   },
 
   fx: {
+    /** God rays strength (grows when the sun is partly hidden) and lens flare strength. */
+    godRays: 0.5,
+    lensFlare: 0.28,
     streakStart: 150,
     streakFull: 1400,
     caMax: 0.012,
@@ -226,6 +229,12 @@ export const T = {
     fogFalloff: 0.00042,
     /** How much a cumulus overhead dims direct sun (0..1). */
     cloudShadow: 0.55,
+    /** Moon brightness relative to the sun for sky scattering (artistic: keeps nights deep blue). */
+    moonScale: 0.012,
+    /** Exposure multiplier at full night (eye adaptation). */
+    nightExposure: 1.7,
+    /** Moonlight (directional) intensity at full night. */
+    moonLight: 0.09,
   },
 
   hud: {

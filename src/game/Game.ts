@@ -2,7 +2,7 @@
  * Game orchestrator: owns the loop, renderer, world, hero, camera, FX, UI and QA hook.
  * Fixed 60 Hz simulation (`step`) + interpolated rendering (`frame`).
  */
-import { Matrix4, Vector3 } from 'three';
+import { Matrix4, Vector2, Vector3 } from 'three';
 import type { GameEventMap, PowersHost, PowersSystem, StatsSnapshot, WorldLike } from '../contracts.ts';
 import { EventBus } from '../core/events.ts';
 import { FixedLoop } from '../core/loop.ts';
@@ -26,6 +26,7 @@ import { installQaHook, type QaApi, type TeleportTarget } from '../qa/hook.ts';
 import { SCRIPTS, resetScriptState, type FlightScript, type ScriptHost } from '../qa/scripts.ts';
 import { DebugPanel } from '../debug/DebugPanel.ts';
 import { DofEffect, GradeEffect } from '../fx/CinemaEffects.ts';
+import { SunFxEffect } from '../fx/SunFxEffect.ts';
 import { Menu } from '../ui/Menu.ts';
 import { MapView } from '../ui/MapView.ts';
 import { PhotoPanel, type PhotoValues } from '../ui/PhotoPanel.ts';
@@ -93,6 +94,9 @@ export class Game {
   private lastFxTime = 0;
   readonly dof = new DofEffect();
   readonly grade = new GradeEffect();
+  readonly sunFx = new SunFxEffect();
+  private sunVis = 0;
+  private readonly sunHit: import('../contracts.ts').SweepHit = { t: 0, point: new Vector3(), normal: new Vector3(), kind: 'none', id: -1 };
   readonly menu: Menu | null;
   readonly intro: IntroDirector;
   readonly pauseMenu: Menu;
@@ -158,6 +162,8 @@ export class Game {
     this.render.addPreEffect('speed', this.fx.speedFx);
     this.render.addPreEffect('dof', this.dof);
     this.render.setPreEffectEnabled('dof', false);
+    this.render.addPreEffect('sun', this.sunFx);
+    this.sunFx.set('uSkyDist', T.camera.far * 0.8);
     this.render.addGrade(this.grade);
 
     this.hud = new Hud(ui);
@@ -433,10 +439,13 @@ export class Game {
       this.heroLook.uHeroRim!.value = (this.heroLook.uHeroRim!.value as number) * this.heroLookScale;
     }
     const a = this.render.atmosphere;
+    // Clouds: sunlit by day, moonlit (cool, dim) by night.
+    const cloudLight = new Vector3(a.sunColor.r, a.sunColor.g, a.sunColor.b).multiplyScalar(T.sky.sunIntensity / Math.PI);
+    cloudLight.add(new Vector3(0.6, 0.68, 0.9).multiplyScalar(0.035 * night));
     this.clouds.update(
       cam,
-      this.sunDir,
-      new Vector3(a.sunColor.r, a.sunColor.g, a.sunColor.b).multiplyScalar(T.sky.sunIntensity / Math.PI),
+      night > 0.5 ? a.moonDir : this.sunDir,
+      cloudLight,
       new Vector3(a.skyZenith.r, a.skyZenith.g, a.skyZenith.b),
       new Vector3(a.skyHorizon.r, a.skyHorizon.g, a.skyHorizon.b).multiplyScalar(0.55),
       night,
@@ -451,6 +460,7 @@ export class Game {
     this.fx.frame(fxDt, cam, this.havePrevVP ? this.prevViewProj : null, night);
     this.powers?.frame(hudDt);
     this.render.sky.setTime(this.time);
+    this.updateSunFx(cam, night, frameDt);
     if (this.state === 'photo') this.photoDof();
     this.render.vignette.darkness = T.fx.vignetteBase + T.fx.vignetteSpeed * Math.min(1, this.hero.speed / 2400);
     this.render.render(frameDt);
@@ -477,6 +487,43 @@ export class Game {
           `clouds ${this.clouds.visibleCount}  mist ${this.fx.mist01.toFixed(2)}`,
       );
     }
+  }
+
+  /** God rays + lens flare: sun screen position and CPU visibility (towers, cloud transmittance). */
+  private updateSunFx(cam: import('three').PerspectiveCamera, night: number, dt: number): void {
+    const sd = this.sunDir;
+    const fwd = new Vector3(0, 0, -1).applyQuaternion(cam.quaternion);
+    let on = (1 - night) * clamp((sd.y + 0.02) / 0.08, 0, 1) * clamp((fwd.dot(sd) - 0.05) / 0.25, 0, 1);
+    const p = cam.position.clone().addScaledVector(sd, 1000).project(cam);
+    const uv = new Vector2(p.x * 0.5 + 0.5, p.y * 0.5 + 0.5);
+    const off = Math.max(Math.abs(uv.x - 0.5), Math.abs(uv.y - 0.5)) - 0.5;
+    on *= 1 - clamp((off - 0.05) / 0.35, 0, 1);
+    let vis = 0;
+    if (on > 0.001) {
+      vis = 1;
+      const to = cam.position.clone().addScaledVector(sd, 4000);
+      if (this.world.collision.sweepSphere(cam.position, to, 0.3, this.sunHit)) vis = 0;
+      else if (sd.y > 0.02 && cam.position.y < 2700) {
+        // Cloud transmittance along the sun ray through the deck band.
+        const t0 = Math.max(0, (1450 - cam.position.y) / sd.y);
+        const t1 = (2650 - cam.position.y) / sd.y;
+        let tau = 0;
+        const q = new Vector3();
+        for (let i = 0; i < 8; i++) {
+          const t = t0 + ((i + 0.5) / 8) * (t1 - t0);
+          tau += this.clouds.densityAt(q.copy(cam.position).addScaledVector(sd, t));
+        }
+        vis = Math.exp(-tau * 1.6);
+      }
+    }
+    this.sunVis += (vis - this.sunVis) * expFactor(vis < this.sunVis ? 14 : 8, Math.max(dt, 1 / 120));
+    const a = this.render.atmosphere;
+    this.sunFx.setSun(uv, new Vector3(a.sunColor.r, a.sunColor.g, a.sunColor.b));
+    this.sunFx.set('uSunOn', on);
+    this.sunFx.set('uSunVis', this.sunVis * on);
+    // Shafts read best when the sun is partly hidden; a fully visible sun is mostly flare.
+    this.sunFx.set('uRays', T.fx.godRays * (0.35 + 1.6 * this.sunVis * (1 - this.sunVis) + 0.5 * (1 - this.sunVis)));
+    this.sunFx.set('uFlare', T.fx.lensFlare);
   }
 
   // ───────────────────────────────────────────────────────────── pause · photo · map
@@ -586,7 +633,7 @@ export class Game {
     this.photo.focusDist = v.focusDist;
     if (Math.abs(v.hour - this.hour) > 1e-3) {
       this.hour = v.hour;
-      this.render.atmosphere.dirty = true;
+      this.render.requestSkyRefresh();
     }
     this.grade.applyFilter(v.filter);
   }
@@ -761,7 +808,7 @@ export class Game {
       pad: g.pad,
       setHour: (h) => {
         g.hour = h;
-        g.render.atmosphere.dirty = true;
+        g.render.requestSkyRefresh();
       },
       spawnGround: (p, heading) => {
         g.hero.spawnGround(p, heading);
@@ -800,7 +847,7 @@ export class Game {
       stats: () => game.stats(),
       setTime(hour: number) {
         game.hour = hour;
-        game.render.atmosphere.dirty = true;
+        game.render.requestSkyRefresh();
       },
       setWeather(_name: string) {},
       setThrottle(tier: number) {
