@@ -1,0 +1,35 @@
+{
+  "name": "superman-metropolis",
+  "private": true,
+  "version": "0.1.0",
+  "description": "SUPERMAN — METROPOLIS: a non-commercial, procedural, open-world browser fan game.",
+  "type": "module",
+  "license": "UNLICENSED",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "qa": "node scripts/qa/run.mjs",
+    "qa:landmarks": "node scripts/qa/run.mjs --landmarks",
+    "bake:hero": "node scripts/bake/hero.ts",
+    "bake:emblem": "node scripts/qa/run.mjs --trace-emblem"
+  },
+  "dependencies": {
+    "@dimforge/rapier3d-compat": "0.21.0",
+    "lil-gui": "0.21.0",
+    "n8ao": "2.0.1",
+    "postprocessing": "6.39.6",
+    "three": "0.187.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/three": "0.187.0",
+    "playwright": "1.63.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.6",
+    "vitest": "^5.1.0"
+  }
+}
