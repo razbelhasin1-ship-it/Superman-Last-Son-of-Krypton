@@ -284,6 +284,7 @@ export class Game {
 
   /** PLAY pressed (or ?intro): run the Play sequence from its first frame. */
   beginIntro(): void {
+    this.clouds.resetDrift();
     this.audio.unlock();
     if (!this.params.qa) this.input.requestPointerLock();
     const fromMenu = this.state === 'menu';
@@ -358,6 +359,7 @@ export class Game {
       if (f.has('map')) return this.openMap('play');
     }
     if (this.state === 'play') {
+      this.clouds.advanceDrift(wdt);
       this.hero.step(this.frameIn, this.rig, dt);
       this.powers?.step(dt, wdt, this.frameIn);
       this.run.topSpeed = Math.max(this.run.topSpeed, this.hero.speed);
@@ -420,6 +422,12 @@ export class Game {
     this.updateLighting(frameDt);
     const night = atmoUniforms.uAtmoNight!.value as number;
     updateHeroLook(cam, this.sunDir, night);
+    // Cumulus shadows drifting over the ground (spec 12.1).
+    atmoUniforms.uCloudCov!.value = this.clouds.coverage;
+    (atmoUniforms.uCloudSun!.value as Vector3).copy(this.sunDir);
+    const cp = atmoUniforms.uCloudParams!.value as import('three').Vector4;
+    const sunUp = Math.min(1, Math.max(0, (this.sunDir.y - 0.03) / 0.12));
+    cp.set(this.clouds.drift.x, this.clouds.drift.y, this.clouds.extent, T.sky.cloudShadow * (1 - night) * sunUp);
     if (this.heroLookScale !== 1) {
       this.heroLook.uHeroFill!.value = (this.heroLook.uHeroFill!.value as number) * this.heroLookScale;
       this.heroLook.uHeroRim!.value = (this.heroLook.uHeroRim!.value as number) * this.heroLookScale;
@@ -638,6 +646,7 @@ export class Game {
     this.input.enabled = false;
     this.input.releaseAll();
     if (document.pointerLockElement) document.exitPointerLock();
+    this.clouds.resetDrift();
     this.intro.placeHero();
     this.state = 'menu';
     this.pauseMenu.show();

@@ -43,4 +43,6 @@ One line per reviewed image: what is wrong → what will change. Newest first wi
 ## Render (my modules)
 - `qa/shots/shadows-900m.png` — **good**: altitude-adaptive sun shadow (±1.2 km here) gives the tower field long late-afternoon shadows; near-ground framing unchanged.
 - `qa/shots/herolook-ab.png` (off | on, backlit and canyon) — **good**: hero-only fill + rim lifts the silhouette off a hazy backlit sky and keeps the cape red against shaded facades without looking lit-on.
+- `qa/shots/cirrus.png` — **good**: wind-combed cirrus streaks at 9 km, patchy, fading into the haze; cumulus deck below unchanged.
+- `qa/shots/cloud-shadows.png` — **good**: soft cumulus shadows (coverage map projected along the sun) drift over the fields; off at night/low sun. v1 probe showed none — the intro clears the sky over the test ground (probe moved under real clouds).
 

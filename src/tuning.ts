@@ -224,6 +224,8 @@ export const T = {
     sunIntensity: 3.2,
     fogDensity: 0.000055,
     fogFalloff: 0.00042,
+    /** How much a cumulus overhead dims direct sun (0..1). */
+    cloudShadow: 0.55,
   },
 
   hud: {

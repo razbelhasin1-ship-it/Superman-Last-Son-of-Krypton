@@ -391,6 +391,9 @@ export class RenderSystem {
     cam.updateMatrixWorld();
     const fog = atmoUniforms.uAtmoFogDensity!.value as number;
     atmoUniforms.uAtmoFogDensity!.value = 0;
+    const cloudP = atmoUniforms.uCloudParams!.value as { w: number };
+    const cloudW = cloudP.w;
+    cloudP.w = 0;
     const was = hide.map((o) => o.visible);
     hide.forEach((o) => (o.visible = false));
     const skyWas = this.sky.visible;
@@ -412,6 +415,7 @@ export class RenderSystem {
     this.sky.visible = skyWas;
     hide.forEach((o, i) => (o.visible = was[i]!));
     atmoUniforms.uAtmoFogDensity!.value = fog;
+    cloudP.w = cloudW;
     rt.dispose();
     // ACES (Narkowicz) + sRGB, flipped to image rows.
     const out = document.createElement('canvas');

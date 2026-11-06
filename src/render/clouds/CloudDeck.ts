@@ -6,6 +6,11 @@
  */
 import {
   CanvasTexture,
+  DataTexture,
+  RedFormat,
+  RepeatWrapping,
+  UnsignedByteType,
+  Vector2,
   DynamicDrawUsage,
   Frustum,
   InstancedBufferAttribute,
@@ -53,6 +58,7 @@ attribute vec4 aPuff;   // xyz centre, radius
 attribute vec4 aCloud;  // base, top, shade, density
 uniform vec3 uCamPos;
 uniform vec4 uHole;     // x, z, radius, strength — a punched hole (power launch)
+uniform vec2 uDriftDelta; // wind drift since the instance buffer was last written
 varying vec2 vUv;
 varying float vH;
 varying float vShade;
@@ -61,6 +67,7 @@ varying vec3 vCenterDir;
 void main() {
   vUv = uv;
   vec3 c = aPuff.xyz;
+  c.xz += uDriftDelta;
   float r = aPuff.w;
   vec4 mvPosition = modelViewMatrix * vec4(c, 1.0);
   float dist = length(c - uCamPos);
@@ -177,6 +184,15 @@ export class CloudDeck {
   private readonly cell = 2000;
   visibleCount = 0;
   private hole = { x: 0, z: 0, r: 0, t: -1, dur: 1 };
+  /** Wind drift of the whole deck (world = local + drift, wrapped to ±extent around the camera). */
+  readonly drift = new Vector2();
+  readonly wind = new Vector2(3.4, 1.2);
+  private readonly driftAtBuild = new Vector2();
+  readonly extent: number;
+  /** Top-down coverage (0..1) of the deck in local coordinates, for cloud shadows. */
+  readonly coverage: DataTexture;
+  private readonly covSize = 512;
+  private readonly covData: Uint8Array;
 
   /** Punch an expanding hole through the deck (power launch). */
   punch(x: number, z: number, radius: number, dur = 6): void {
@@ -204,6 +220,12 @@ export class CloudDeck {
   constructor(seed: number, opts: { extent?: number; detail?: number } = {}) {
     const rng = new Rng(seed).fork('clouds');
     const extent = opts.extent ?? 24000;
+    this.extent = extent;
+    this.covData = new Uint8Array(this.covSize * this.covSize);
+    this.coverage = new DataTexture(this.covData, this.covSize, this.covSize, RedFormat, UnsignedByteType);
+    this.coverage.wrapS = this.coverage.wrapT = RepeatWrapping;
+    this.coverage.magFilter = LinearFilter;
+    this.coverage.minFilter = LinearFilter;
     const detail = opts.detail ?? 1;
     const cellSize = 950 / Math.sqrt(Math.max(0.3, detail));
     for (let gx = -extent; gx < extent; gx += cellSize) {
@@ -242,6 +264,7 @@ export class CloudDeck {
       uCamPos: { value: new Vector3() },
       uHole: { value: new Vector4(0, 0, 0, 0) },
       uNightK: { value: 0 },
+      uDriftDelta: { value: new Vector2() },
     };
     injectAtmo(uniforms);
     this.mat = new ShaderMaterial({
@@ -258,6 +281,62 @@ export class CloudDeck {
     this.mesh.renderOrder = 8;
     this.mesh.name = 'clouds';
     this.rebuildGrid();
+    this.rebuildCoverage();
+  }
+
+  /** Advance the wind drift (world time). */
+  advanceDrift(dt: number): void {
+    this.drift.addScaledVector(this.wind, dt);
+    const E2 = this.extent * 2;
+    if (Math.abs(this.drift.x) > E2 || Math.abs(this.drift.y) > E2) {
+      this.drift.x %= E2;
+      this.drift.y %= E2;
+      this.lastCam.set(1e9, 0, 0);
+    }
+  }
+
+  /** Cinematics (intro) compose the sky in world space: start them from zero drift. */
+  resetDrift(): void {
+    this.drift.set(0, 0);
+    this.lastCam.set(1e9, 0, 0);
+  }
+
+  /** Wrap a local coordinate so that local + drift lands within ±extent of `ref` (world). */
+  private wrapOffset(local: number, drift: number, ref: number): number {
+    const E = this.extent;
+    const w = local + drift - ref;
+    return drift - Math.floor((w + E) / (2 * E)) * 2 * E;
+  }
+
+  private rebuildCoverage(): void {
+    const S = this.covSize;
+    const E = this.extent;
+    const px = (2 * E) / S;
+    const acc = new Float32Array(S * S);
+    for (const c of this.clouds) {
+      for (const p of c.puffs) {
+        // Splat a soft disc (horizontal footprint of the puff).
+        const r = p.r * 0.9;
+        const gx0 = Math.floor((p.x - r + E) / px);
+        const gx1 = Math.floor((p.x + r + E) / px);
+        const gz0 = Math.floor((p.z - r + E) / px);
+        const gz1 = Math.floor((p.z + r + E) / px);
+        for (let gz = gz0; gz <= gz1; gz++) {
+          for (let gx = gx0; gx <= gx1; gx++) {
+            const wx = (gx + 0.5) * px - E;
+            const wz = (gz + 0.5) * px - E;
+            const d = Math.hypot(wx - p.x, wz - p.z) / r;
+            if (d >= 1) continue;
+            const ix = ((gx % S) + S) % S;
+            const iz = ((gz % S) + S) % S;
+            const k = iz * S + ix;
+            acc[k] = Math.max(acc[k]!, (1 - d * d) * c.density);
+          }
+        }
+      }
+    }
+    for (let i = 0; i < S * S; i++) this.covData[i] = Math.round(Math.min(1, acc[i]!) * 255);
+    this.coverage.needsUpdate = true;
   }
 
   /** Add a cumulus cluster (also used for hand-placed cinematic banks). */
@@ -293,7 +372,9 @@ export class CloudDeck {
   clearAround(x: number, z: number, radius: number): void {
     for (let i = this.clouds.length - 1; i >= 0; i--) {
       const c = this.clouds[i]!;
-      if (Math.hypot(c.cx - x, c.cz - z) < radius) this.clouds.splice(i, 1);
+      const wx = c.cx + this.wrapOffset(c.cx, this.drift.x, x);
+      const wz = c.cz + this.wrapOffset(c.cz, this.drift.y, z);
+      if (Math.hypot(wx - x, wz - z) < radius) this.clouds.splice(i, 1);
     }
     this.afterEdit();
   }
@@ -319,6 +400,7 @@ export class CloudDeck {
       (this as unknown as { aCloud: InstancedBufferAttribute }).aCloud = c;
     }
     this.rebuildGrid();
+    this.rebuildCoverage();
     this.lastCam.set(1e9, 0, 0);
   }
 
@@ -342,10 +424,11 @@ export class CloudDeck {
 
   /** Cloud density (0..1) at a point — drives the in-cloud mist and the burst-out event. */
   densityAt(p: Vector3): number {
-    if (p.y < 1200 || p.y > 2900) {
-      // Fast reject outside the deck band (cinematic banks may be elsewhere: check grid anyway).
-    }
-    const k = Math.floor(p.x / this.cell) * 73856093 + Math.floor(p.z / this.cell) * 19349663;
+    // World → deck-local (undo the wind drift, wrapped into ±extent).
+    const E = this.extent;
+    const lx = ((((p.x - this.drift.x + E) % (2 * E)) + 2 * E) % (2 * E)) - E;
+    const lz = ((((p.z - this.drift.y + E) % (2 * E)) + 2 * E) % (2 * E)) - E;
+    const k = Math.floor(lx / this.cell) * 73856093 + Math.floor(lz / this.cell) * 19349663;
     const list = this.grid.get(k);
     if (!list) return 0;
     let d = 0;
@@ -353,7 +436,7 @@ export class CloudDeck {
       const c = this.clouds[ci]!;
       if (p.y < c.base - 200 || p.y > c.top + 200) continue;
       for (const pf of c.puffs) {
-        const dd = Math.hypot(p.x - pf.x, (p.y - pf.y) * 1.2, p.z - pf.z) / pf.r;
+        const dd = Math.hypot(lx - pf.x, (p.y - pf.y) * 1.2, lz - pf.z) / pf.r;
         if (dd < 1) d = Math.max(d, (1 - dd) * (1 - dd) * 1.6 * c.density);
       }
     }
@@ -376,43 +459,49 @@ export class CloudDeck {
     (u.uSkyLow!.value as Vector3).copy(skyLow);
     (u.uCamPos!.value as Vector3).copy(camera.position);
     u.uNightK!.value = night;
+    (u.uDriftDelta!.value as Vector2).copy(this.drift).sub(this.driftAtBuild);
     const dir = new Vector3();
     camera.getWorldDirection(dir);
-    const moved = this.lastCam.distanceTo(camera.position) > 15 || this.lastDir.angleTo(dir) > 0.03;
+    const drifted = this.drift.distanceTo(this.driftAtBuild) > 60;
+    const moved = this.lastCam.distanceTo(camera.position) > 15 || this.lastDir.angleTo(dir) > 0.03 || drifted;
     if (!moved) return;
     this.lastCam.copy(camera.position);
     this.lastDir.copy(dir);
+    this.driftAtBuild.copy(this.drift);
+    (u.uDriftDelta!.value as Vector2).set(0, 0);
     this.m4.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
     this.frustum.setFromProjectionMatrix(this.m4);
     const cam = camera.position;
-    const vis: { c: Cloud; d: number }[] = [];
+    const vis: { c: Cloud; d: number; ox: number; oz: number }[] = [];
     for (const c of this.clouds) {
-      this.sphere.center.set(c.cx, c.cy, c.cz);
+      const ox = this.wrapOffset(c.cx, this.drift.x, cam.x);
+      const oz = this.wrapOffset(c.cz, this.drift.y, cam.z);
+      this.sphere.center.set(c.cx + ox, c.cy, c.cz + oz);
       this.sphere.radius = c.radius * 1.4;
       if (!this.frustum.intersectsSphere(this.sphere)) continue;
-      const d = Math.hypot(c.cx - cam.x, c.cy - cam.y, c.cz - cam.z);
+      const d = Math.hypot(c.cx + ox - cam.x, c.cy - cam.y, c.cz + oz - cam.z);
       if (d > 44000) continue;
-      vis.push({ c, d });
+      vis.push({ c, d, ox, oz });
     }
     vis.sort((a, b) => b.d - a.d);
     const P = this.aPuff.array as Float32Array;
     const Cc = this.aCloud.array as Float32Array;
     let n = 0;
     const order: { p: Puff; d: number }[] = [];
-    for (const { c, d } of vis) {
+    for (const { c, d, ox, oz } of vis) {
       order.length = 0;
       // Far clouds: drop small puffs.
       const minR = d > 18000 ? c.radius * 0.28 : 0;
       for (const p of c.puffs) {
         if (p.r < minR) continue;
-        order.push({ p, d: (p.x - cam.x) * dir.x + (p.y - cam.y) * dir.y + (p.z - cam.z) * dir.z });
+        order.push({ p, d: (p.x + ox - cam.x) * dir.x + (p.y - cam.y) * dir.y + (p.z + oz - cam.z) * dir.z });
       }
       order.sort((a, b) => b.d - a.d);
       for (const { p } of order) {
         if (n >= this.capacity) break;
-        P[n * 4] = p.x;
+        P[n * 4] = p.x + ox;
         P[n * 4 + 1] = p.y;
-        P[n * 4 + 2] = p.z;
+        P[n * 4 + 2] = p.z + oz;
         P[n * 4 + 3] = p.r;
         Cc[n * 4] = c.base;
         Cc[n * 4 + 1] = c.top;

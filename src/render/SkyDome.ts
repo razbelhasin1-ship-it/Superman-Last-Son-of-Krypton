@@ -1,9 +1,11 @@
 /**
  * Camera-centred sky dome: samples the atmosphere LUT, adds a sun disc with bloom-friendly radiance,
- * a moon and a procedural star field at night. Rendered first with no depth test.
+ * a moon, a procedural star field at night and a high cirrus layer (≈ 9 km) of wind-combed streaks lit
+ * by the sun. Rendered first with no depth test.
  */
 import { BackSide, Mesh, ShaderMaterial, SphereGeometry, type IUniform } from 'three';
 import { ATMO_GLSL, atmoUniforms } from './atmosphere.ts';
+import { NOISE_GLSL } from './materials.ts';
 
 const VERT = /* glsl */ `
 varying vec3 vDir;
@@ -19,7 +21,28 @@ ${ATMO_GLSL}
 uniform float uSunDisc;
 uniform float uStarTime;
 uniform vec3 uMoonDir;
+uniform float uCirrus;
 varying vec3 vDir;
+${NOISE_GLSL}
+// Cirrus: thin streaks on a plane at 9 km, combed along the wind, patchy at large scale.
+vec4 cirrus(vec3 d, vec3 sunCol, vec3 skyCol) {
+  if (d.y < 0.015 || uCirrus <= 0.0) return vec4(0.0);
+  float camY = min(cameraPosition.y, 8500.0);
+  float t = (9000.0 - camY) / d.y;
+  vec2 p = cameraPosition.xz + d.xz * t + vec2(uStarTime * 9.0, uStarTime * 3.0);
+  // Rotate into the wind frame and stretch along it.
+  vec2 w = vec2(0.94, 0.34);
+  vec2 q = vec2(dot(p, w), dot(p, vec2(-w.y, w.x)));
+  vec2 s = q * vec2(0.00011, 0.00062);
+  s += vec2(fbm2(q * 0.00006) * 2.2, 0.0);
+  float n = fbm2(s);
+  float patchy = smoothstep(0.42, 0.75, fbm2(p * 0.000035 + 11.0));
+  float a = smoothstep(0.48, 0.82, n) * patchy * uCirrus;
+  // Fade into the haze toward the horizon.
+  a *= smoothstep(0.015, 0.22, d.y);
+  vec3 col = sunCol * 0.32 + skyCol * 1.25;
+  return vec4(col, a * 0.55);
+}
 float hash13(vec3 p) {
   p = fract(p * 0.1031);
   p += dot(p, p.zyx + 31.32);
@@ -46,6 +69,8 @@ void main() {
   vec3 d = normalize(vDir);
   vec3 col = atmoSky(d);
   float cosA = dot(d, uAtmoSunDir);
+  vec4 ci = cirrus(d, uAtmoSunColor * (1.0 - uAtmoNight), atmoSky(vec3(0.0, 1.0, 0.0)));
+  col = mix(col, ci.rgb + col * 0.35, ci.a);
   // Sun disc (slightly enlarged for readability) with limb darkening, plus a tight halo.
   float r = 0.0085;
   float disc = smoothstep(cos(r), cos(r * 0.7), cosA);
@@ -74,6 +99,7 @@ export class SkyDome extends Mesh {
       uSunDisc: { value: 1 },
       uStarTime: { value: 0 },
       uMoonDir: { value: atmoUniforms.uAtmoSunDir!.value.clone().negate() },
+      uCirrus: { value: 1 },
     };
     for (const k in atmoUniforms) uniforms[k] = atmoUniforms[k] as IUniform;
     const mat = new ShaderMaterial({

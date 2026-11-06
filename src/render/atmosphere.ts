@@ -22,6 +22,7 @@ import {
   ShaderChunk,
   ShaderMaterial,
   Vector3,
+  Vector4,
   WebGLRenderTarget,
   type WebGLRenderer,
   type IUniform,
@@ -49,6 +50,11 @@ export const atmoUniforms: Record<string, IUniform> = {
   uAtmoSkyScale: { value: SKY_SCALE },
   uAtmoTime: { value: 0 },
   uAtmoCloudShadow: { value: 0 },
+  // Cumulus shadows on everything lit by the sun (coverage map projected along the sun direction).
+  uCloudCov: { value: null },
+  /** drift x, drift z, deck half-extent, strength (0 = off). */
+  uCloudParams: { value: new Vector4(0, 0, 24000, 0) },
+  uCloudSun: { value: new Vector3(0, 1, 0) },
   uAtmoNight: { value: 0 },
   // three.js refreshes these for every material with `fog: true`; our chunks ignore them, but custom
   // ShaderMaterials must still own them.
@@ -92,6 +98,22 @@ vec3 atmoApply(vec3 col, vec3 ray, float camY) {
 }
 `;
 
+const CLOUD_SHADOW_GLSL = /* glsl */ `
+uniform sampler2D uCloudCov;
+uniform vec4 uCloudParams;
+uniform vec3 uCloudSun;
+uniform mat4 uAtmoViewInv;
+float atmoCloudShadow(vec3 viewPos) {
+  if (uCloudParams.w <= 0.0) return 1.0;
+  vec3 wp = (uAtmoViewInv * vec4(viewPos, 1.0)).xyz;
+  float dh = 1900.0 - wp.y;
+  if (dh <= 0.0) return 1.0;
+  vec2 pc = wp.xz + uCloudSun.xz / max(uCloudSun.y, 0.08) * dh - uCloudParams.xy;
+  float cov = texture2D(uCloudCov, pc / (2.0 * uCloudParams.z) + 0.5).r;
+  return 1.0 - uCloudParams.w * smoothstep(0.1, 0.65, cov);
+}
+`;
+
 let patched = false;
 
 /** Patch three's fog chunks once so every material with `fog: true` gets aerial perspective. */
@@ -120,6 +142,12 @@ export function installAtmosphereChunks(): void {
   gl_FragColor.rgb = atmoApply(gl_FragColor.rgb, vAtmoRay, cameraPosition.y);
 #endif
 `;
+  // Cloud shadows: dim the sun (directional light 0..n) under the cumulus deck.
+  ShaderChunk.lights_pars_begin = ShaderChunk.lights_pars_begin + CLOUD_SHADOW_GLSL;
+  ShaderChunk.lights_fragment_begin = ShaderChunk.lights_fragment_begin.replace(
+    'getDirectionalLightInfo( directionalLight, directLight );',
+    'getDirectionalLightInfo( directionalLight, directLight );\n\t\tdirectLight.color *= atmoCloudShadow( geometryPosition );',
+  );
   // Share the atmosphere uniforms (by reference) with every compiled program.
   const proto = Material.prototype as Material & { onBeforeCompile: (s: { uniforms: Record<string, IUniform> }) => void };
   proto.onBeforeCompile = function (shader: { uniforms: Record<string, IUniform> }) {
