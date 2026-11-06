@@ -49,9 +49,10 @@ void main() {
   float n = fbm2(vec2(vUv.x * 9.0, axial * 3.0 - uTime * 6.0));
   float rim = pow(1.0 - abs(dot(vN, vV)), 1.4);
   float band = smoothstep(0.05, 0.45, axial) * smoothstep(1.0, 0.75, axial);
-  float a = uAmount * band * (0.35 + 0.65 * rim) * smoothstep(0.25, 0.75, n) * 0.85;
+  float wisp = smoothstep(0.42, 0.8, n) * (0.6 + 0.4 * fbm2(vec2(vUv.x * 23.0 + uTime * 3.0, axial * 7.0)));
+  float a = uAmount * band * (0.15 + 0.85 * rim * rim) * wisp * 0.5;
   if (a < 0.004) discard;
-  gl_FragColor = vec4(vec3(1.0, 1.0, 1.02) * 1.6, a);
+  gl_FragColor = vec4(vec3(1.0, 1.0, 1.02) * 1.35, a);
 }
 `;
 

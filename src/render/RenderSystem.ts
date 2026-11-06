@@ -85,6 +85,7 @@ export class RenderSystem {
   readonly noise: NoiseEffect;
   readonly smaa: SMAAEffect;
   private finalPass: EffectPass;
+  private finalEffects: Effect[] = [];
   private smaaPass: EffectPass;
   /** Effects inserted before bloom/tonemapping (speed FX, DOF …), each in its own pass. */
   private preEffects: { key: string; pass: EffectPass }[] = [];
@@ -161,12 +162,13 @@ export class RenderSystem {
       radius: 0.72,
       levels: 7,
     });
-    this.toneMapping = new ToneMappingEffect({ mode: ToneMappingMode.AGX });
+    this.toneMapping = new ToneMappingEffect({ mode: ToneMappingMode.ACES_FILMIC });
     this.vignette = new VignetteEffect({ offset: 0.32, darkness: T.fx.vignetteBase });
     this.noise = new NoiseEffect({ blendFunction: BlendFunction.OVERLAY, premultiply: false });
     this.noise.blendMode.opacity.value = 0.045;
     this.smaa = new SMAAEffect({ preset: SMAAPreset.HIGH });
     this.finalPass = new EffectPass(this.camera, this.bloom, this.toneMapping, this.vignette, this.noise);
+    this.finalEffects = [this.bloom, this.toneMapping, this.vignette, this.noise];
     this.smaaPass = new EffectPass(this.camera, this.smaa);
     this.rebuildChain();
   }
@@ -177,6 +179,14 @@ export class RenderSystem {
     this.preEffects.push({ key, pass });
     this.rebuildChain();
     return pass;
+  }
+
+  /** Colour grade after tone mapping (inside the final pass). */
+  addGrade(effect: Effect): void {
+    this.finalEffects = [this.bloom, this.toneMapping, effect, this.vignette, this.noise];
+    this.finalPass.dispose();
+    this.finalPass = new EffectPass(this.camera, ...this.finalEffects);
+    this.rebuildChain();
   }
 
   setPreEffectEnabled(key: string, enabled: boolean): void {

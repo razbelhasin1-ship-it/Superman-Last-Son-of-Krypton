@@ -13,9 +13,9 @@ import {
   MeshStandardMaterial,
   PlaneGeometry,
   Quaternion,
+  Euler,
   RingGeometry,
   ShaderMaterial,
-  TorusGeometry,
   Vector3,
   type Group,
   type IUniform,
@@ -164,7 +164,7 @@ export class GroundFx {
           #include <logdepthbuf_fragment>
           float r = length(vUv - 0.5) * 2.0;
           float a = smoothstep(1.0, 0.75, r) * uAlpha;
-          vec3 c = mix(vec3(0.07, 0.065, 0.06), vec3(0.32, 0.29, 0.26), smoothstep(0.1, 0.95, r));
+          vec3 c = mix(vec3(0.16, 0.14, 0.12), vec3(0.36, 0.33, 0.29), smoothstep(0.05, 0.95, r));
           gl_FragColor = vec4(c, a);
           #include <fog_fragment>
         }`,
@@ -181,13 +181,31 @@ export class GroundFx {
     bowl.position.set(pos.x, pos.y + 0.07, pos.z);
     bowl.renderOrder = 6;
     this.parent.add(bowl);
-    const rim = new Mesh(
-      new TorusGeometry(radius * 0.95, radius * 0.13, 8, 40).rotateX(Math.PI / 2).scale(1, 0.45, 1),
-      new MeshStandardMaterial({ color: 0x5d5853, roughness: 1 }),
+    // Jagged rubble rim: a ring of broken slabs and rocks (instanced), not a smooth torus.
+    const rng = new Rng(`crater-${seed}`);
+    const nRocks = Math.round(30 + radius * 4);
+    const rocks = new InstancedMesh(
+      new DodecahedronGeometry(1, 0),
+      new MeshStandardMaterial({ color: 0x6f6a63, roughness: 1, flatShading: true }),
+      nRocks,
     );
-    rim.position.set(pos.x, pos.y, pos.z);
-    rim.castShadow = true;
-    rim.receiveShadow = true;
+    const m4 = new Matrix4();
+    const q = new Quaternion();
+    for (let i = 0; i < nRocks; i++) {
+      const a = (i / nRocks) * Math.PI * 2 + rng.range(-0.08, 0.08);
+      const rr = radius * rng.range(0.82, 1.12);
+      const sz = radius * rng.range(0.05, 0.13);
+      q.setFromEuler(new Euler(rng.range(0, 3), rng.range(0, 3), rng.range(0, 3)));
+      m4.compose(
+        new Vector3(pos.x + Math.cos(a) * rr, pos.y + sz * 0.25, pos.z + Math.sin(a) * rr),
+        q,
+        new Vector3(sz * rng.range(1, 1.8), sz * rng.range(0.4, 0.8), sz * rng.range(0.8, 1.4)),
+      );
+      rocks.setMatrixAt(i, m4);
+    }
+    rocks.castShadow = true;
+    rocks.receiveShadow = true;
+    const rim = rocks as unknown as Mesh;
     this.parent.add(rim);
     this.crackDecal(pos, radius * 2.2, seed + 1, 45);
     for (const m of [bowl, rim]) {

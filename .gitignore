@@ -6,3 +6,4 @@ dist/
 qa/tmp/
 qa/flights/**/frame-*.png
 coverage/
+.claude/worktrees/

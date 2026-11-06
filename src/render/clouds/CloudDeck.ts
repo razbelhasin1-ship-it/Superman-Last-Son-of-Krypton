@@ -298,6 +298,12 @@ export class CloudDeck {
     this.afterEdit();
   }
 
+  /** Remove clouds matching a predicate (cinematic composition). */
+  clearWhere(fn: (c: Cloud) => boolean): void {
+    for (let i = this.clouds.length - 1; i >= 0; i--) if (fn(this.clouds[i]!)) this.clouds.splice(i, 1);
+    this.afterEdit();
+  }
+
   afterEdit(): void {
     const need = this.clouds.reduce((s, c) => s + c.puffs.length, 0);
     if (need > this.capacity) {
@@ -350,6 +356,13 @@ export class CloudDeck {
         const dd = Math.hypot(p.x - pf.x, (p.y - pf.y) * 1.2, p.z - pf.z) / pf.r;
         if (dd < 1) d = Math.max(d, (1 - dd) * (1 - dd) * 1.6 * c.density);
       }
+    }
+    // The punched hole (power launch) clears the mist as well as the rendering.
+    const hole = this.mat.uniforms.uHole!.value as Vector4;
+    if (hole.w > 0) {
+      const hd = Math.hypot(p.x - hole.x, p.z - hole.y);
+      // A thin residue stays inside the hole so the punch-through still reads as a wet wipe.
+      d *= 1 - hole.w * 0.88 * (1 - smooth(hole.z * 0.6, hole.z * 1.15, hd));
     }
     return Math.min(1, d);
   }

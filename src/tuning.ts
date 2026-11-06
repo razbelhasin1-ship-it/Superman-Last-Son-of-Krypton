@@ -20,10 +20,10 @@ export const T = {
     { name: 'HOVER', speed: 6, k: 9.0, fov: 62, dist: 4.3, reachTime: 0 },
     { name: 'GLIDE', speed: 40, k: 7.5, fov: 66, dist: 4.7, reachTime: 0.5 },
     { name: 'CRUISE', speed: 120, k: 4.39, fov: 72, dist: 5.3, reachTime: 0.8 },
-    { name: 'DASH', speed: 340, k: 3.48, fov: 82, dist: 5.9, reachTime: 1.0 },
-    { name: 'SUPERSONIC', speed: 1000, k: 2.33, fov: 98, dist: 6.6, reachTime: 1.5 },
-    { name: 'BULLET', speed: 2400, k: 1.69, fov: 110, dist: 7.4, reachTime: 2.0 },
-    { name: 'BURST', speed: 6000, k: 5.67, fov: 120, dist: 8.2, reachTime: 0.6 },
+    { name: 'DASH', speed: 340, k: 3.48, fov: 80, dist: 5.3, reachTime: 1.0 },
+    { name: 'SUPERSONIC', speed: 1000, k: 2.33, fov: 92, dist: 5.6, reachTime: 1.5 },
+    { name: 'BULLET', speed: 2400, k: 1.69, fov: 102, dist: 6.0, reachTime: 2.0 },
+    { name: 'BURST', speed: 6000, k: 5.67, fov: 112, dist: 6.4, reachTime: 0.6 },
   ] as TierDef[],
 
   flight: {
@@ -106,6 +106,9 @@ export const T = {
     launchHoldMin: 0.5,
     launchHoldMax: 1.6,
     launchDecayK: 0.9,
+    /** A launch charged at least this much holds full speed until it clears the cloud deck. */
+    punchCharge: 0.75,
+    punchThroughAlt: 2650,
     chargeFovDrop: 8,
   },
 

@@ -551,8 +551,14 @@ export class HeroController {
     if (this.braking) {
       const decel = Math.min(F.brakeAccel + F.brakeAccelPerSpeed * this.speed, F.brakeK * this.speed);
       this.speed = Math.max(0, this.speed - decel * dt);
+      this.launchTimer = 0;
     } else if (this.launchTimer > 0) {
       this.launchTimer -= dt;
+      // A full-charge launch punches all the way through the cloud deck before it eases off.
+      const TK = T.takeoff;
+      if (this.launchTimer <= 0 && this.lastLaunchCharge >= TK.punchCharge && this.vel.y > 0 && this.pos.y < TK.punchThroughAlt) {
+        this.launchTimer = dt;
+      }
     } else if (this.diving) {
       const gain = F.diveAccel * Math.max(0, -this.dir.y);
       const floor = tiers[Math.min(eff, 4)]!.speed;

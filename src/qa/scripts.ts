@@ -16,6 +16,7 @@ export interface ScriptHost {
   spawnGround(p: Vector3, heading: number): void;
   spawnFlying(p: Vector3, dir: Vector3, speed: number): void;
   addCloud(x: number, base: number, z: number, size: number, height: number): void;
+  clearClouds(x: number, z: number, radius: number): void;
   log(msg: string): void;
 }
 
@@ -215,7 +216,9 @@ export const SCRIPTS: FlightScript[] = [
     setup(h) {
       boomAt = -1;
       canyonAt = -1;
-      // Control handoff: diving at ~1,800 m just south of the skyline.
+      // Control handoff: diving at ~1,800 m just south of the skyline (below the burst layer, as in
+      // the real handoff, so clear the deck around the spawn).
+      h.clearClouds(0, 0, 2600);
       h.spawnFlying(new Vector3(0, 1800, 350), new Vector3(0, -0.85, -0.53).normalize(), 90);
       h.hero.tier = 3;
       h.rig.yaw = 0;

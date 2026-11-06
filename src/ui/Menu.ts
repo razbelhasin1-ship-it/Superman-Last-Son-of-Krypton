@@ -125,7 +125,7 @@ export class Menu {
     main.className = 'panel';
     main.innerHTML = `
       <div class="brand">${SHIELD_SVG}<div><h1>SUPERMAN</h1><div class="rule"></div></div></div>
-      <div class="sub" style="margin:-.4em 0 clamp(26px,4.5vh,56px)">· <b>METROPOLIS</b></div>
+      <div class="sub" style="margin:-.4em 0 clamp(26px,4.5vh,56px)"><b>METROPOLIS</b></div>
       <nav>
         <button class="mi" data-act="play">PLAY</button>
         <button class="mi" data-act="controls">CONTROLS</button>

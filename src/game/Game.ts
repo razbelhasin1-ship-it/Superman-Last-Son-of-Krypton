@@ -23,6 +23,9 @@ import { loadSettings, saveSettings, type Settings } from '../ui/settings.ts';
 import { installQaHook, type QaApi, type TeleportTarget } from '../qa/hook.ts';
 import { SCRIPTS, resetScriptState, type FlightScript, type ScriptHost } from '../qa/scripts.ts';
 import { DebugPanel } from '../debug/DebugPanel.ts';
+import { DofEffect, GradeEffect } from '../fx/CinemaEffects.ts';
+import { Menu } from '../ui/Menu.ts';
+import { IntroDirector } from '../intro/IntroDirector.ts';
 import { T } from '../tuning.ts';
 
 export type GameState = 'boot' | 'menu' | 'intro' | 'play' | 'paused' | 'gallery';
@@ -67,12 +70,21 @@ export class Game {
   collateral = 0;
   hope = 0;
   private lastFxTime = 0;
+  readonly dof = new DofEffect();
+  readonly grade = new GradeEffect();
+  readonly menu: Menu | null;
+  readonly intro: IntroDirector;
 
-  constructor(canvas: HTMLCanvasElement, ui: HTMLDivElement, params: BootParams) {
+  constructor(
+    canvas: HTMLCanvasElement,
+    ui: HTMLDivElement,
+    params: BootParams,
+    ext: { settings?: Settings; menu?: Menu | null } = {},
+  ) {
     this.canvas = canvas;
     this.ui = ui;
     this.params = params;
-    this.settings = loadSettings();
+    this.settings = ext.settings ?? loadSettings();
     this.ready = new Promise((r) => (this.readyResolve = r));
     const q = params.quality ?? (this.settings.graphics === 'auto' ? 'high' : this.settings.graphics);
     const quality: QualityName = q === 'auto' ? 'high' : q;
@@ -97,10 +109,30 @@ export class Game {
     this.fx.clouds = this.clouds;
     this.render.scene.add(this.fx.group);
     this.render.addPreEffect('speed', this.fx.speedFx);
+    this.render.addPreEffect('dof', this.dof);
+    this.render.setPreEffectEnabled('dof', false);
+    this.render.addGrade(this.grade);
 
     this.hud = new Hud(ui);
     this.fx.onHint = (id, text) => this.hud.hint(id, text, 5);
     this.fx.onCollateral = (a) => (this.collateral += a);
+    this.intro = new IntroDirector({
+      hero: this.hero,
+      visual: this.visual,
+      rig: this.rig,
+      clouds: this.clouds,
+      hud: this.hud,
+      fx: this.fx,
+      dof: this.dof,
+      audio: this.audio,
+      setDofEnabled: (on) => this.render.setPreEffectEnabled('dof', on),
+      onControl: () => {
+        this.input.virtual = null;
+        this.input.enabled = true;
+      },
+      subtitlesOn: () => this.settings.subtitles,
+    });
+    this.menu = ext.menu !== undefined ? ext.menu : null;
     this.events.on('hitstop', ({ frames }) => (this.hitstop = Math.max(this.hitstop, frames)));
     this.events.on('shake', ({ amount }) => this.rig.addTrauma(amount));
 
@@ -149,10 +181,23 @@ export class Game {
 
   async start(): Promise<void> {
     this.time = 0;
-    this.state = 'play';
+    const p = this.params;
+    if (p.play || (p.qa && !p.menu && !p.intro)) {
+      this.state = 'play';
+      this.hud.setFade(1);
+      this.rig.step(1 / 60, this.hero);
+      this.rig.frame(1);
+    } else {
+      this.intro.placeHero();
+      this.hud.setFade(0);
+      if (p.intro) this.beginIntro();
+      else {
+        this.state = 'menu';
+        if (this.menu && !this.menu.isVisible) this.menu.show();
+        this.input.enabled = false;
+      }
+    }
     this.updateLighting(0);
-    this.rig.step(1 / 60, this.hero);
-    this.rig.frame(1);
     // Warm up: compile shaders and bake the sky before the first visible frame.
     this.render.renderer.compile(this.render.scene, this.render.camera);
     this.frame(0, 1 / 60);
@@ -168,6 +213,17 @@ export class Game {
       };
       requestAnimationFrame(tick);
     }
+  }
+
+  /** PLAY pressed (or ?intro): run the Play sequence from its first frame. */
+  beginIntro(): void {
+    this.audio.unlock();
+    if (!this.params.qa) this.input.requestPointerLock();
+    const fromMenu = this.state === 'menu';
+    this.state = 'intro';
+    this.intro.startIntro(fromMenu);
+    this.input.enabled = true;
+    this.input.virtual = null;
   }
 
   private onResize(): void {
@@ -189,10 +245,27 @@ export class Game {
       this.scriptSteps++;
     }
     this.input.sample(dt, this.frameIn);
-    if (this.state === 'play') {
-      if (this.frameIn.pressed.has('pause') && !this.params.qa) {
-        /* menu arrives in gate 2 */
+    if (this.state === 'menu') {
+      this.intro.stepMenu(dt);
+      this.fx.step(dt);
+      return;
+    }
+    if (this.state === 'intro') {
+      const done = this.intro.stepIntro(dt, this.frameIn);
+      if (this.intro.t >= 13.4) {
+        // Control is live during the blend.
+        this.hero.step(this.frameIn, this.rig, dt);
+        this.visual.step(this.hero, dt);
+        this.rig.step(dt, this.hero);
       }
+      this.prevViewProj.copy(this.stepViewProj);
+      this.stepViewProjFromRig();
+      this.havePrevVP = true;
+      this.fx.step(dt);
+      if (done) this.state = 'play';
+      return;
+    }
+    if (this.state === 'play') {
       this.hero.step(this.frameIn, this.rig, dt);
     }
     this.visual.step(this.hero, dt);
@@ -233,7 +306,7 @@ export class Game {
   // ───────────────────────────────────────────────────────────── render frame
 
   private frame(alpha: number, frameDt: number): void {
-    if (this.state === 'play' && !this.script) {
+    if ((this.state === 'play' || (this.state === 'intro' && this.intro.t >= 13.4)) && !this.script) {
       const look = this.input.consumeLook(frameDt, T.camera.padYawRate, T.camera.padPitchRate, T.camera.mouseSensitivity);
       this.rig.addLook(look.dx, look.dy);
     }
@@ -260,7 +333,7 @@ export class Game {
     this.render.sky.setTime(this.time);
     this.render.vignette.darkness = T.fx.vignetteBase + T.fx.vignetteSpeed * Math.min(1, this.hero.speed / 2400);
     this.render.render(frameDt);
-    this.hud.update(
+    if (this.state === 'play' || this.state === 'intro') this.hud.update(
       fxDt,
       this.hero.speed,
       this.hero.effTier,
@@ -323,6 +396,7 @@ export class Game {
         g.clouds.addCloud(new Rng(`script-cloud-${x}-${z}`), x, base, z, size, height, 1);
         g.clouds.afterEdit();
       },
+      clearClouds: (x, z, r) => g.clouds.clearAround(x, z, r),
       log: (msg) => g.scriptLogLines.push(msg),
     };
   }

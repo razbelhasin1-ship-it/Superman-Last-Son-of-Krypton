@@ -98,7 +98,7 @@ export class GradeEffect extends Effect {
         ['uLift', new Uniform(new Vector3(0.012, 0.014, 0.022))],
         ['uGamma', new Uniform(new Vector3(1.0, 1.0, 1.0))],
         ['uGain', new Uniform(new Vector3(1.03, 1.0, 0.97))],
-        ['uSat', new Uniform(1.12)],
+        ['uSat', new Uniform(1.04)],
         ['uShadowTint', new Uniform(new Vector3(0.94, 0.98, 1.08))],
         ['uHighTint', new Uniform(new Vector3(1.05, 1.0, 0.94))],
         ['uSplit', new Uniform(0.5)],

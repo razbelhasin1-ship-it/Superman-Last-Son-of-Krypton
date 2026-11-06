@@ -239,6 +239,11 @@ async function main() {
       if (flag(mod)) {
         const m = await import(`./tasks/${mod}.mjs`);
         await m.default({ root, browser, server, openGame, shot, contactSheet, opt, flag, issues, runFlightScript, ensureDir });
+        // handoff frames → sheet
+        if (mod === 'intro') {
+          const hf = [11.8, 12.5, 12.8, 13.0, 13.4, 14.0, 15.0, 16.5].map((t) => path.join(root, `qa/intro/t${t.toFixed(1).replace('.', '_')}.png`));
+          await contactSheet(hf, ['11.8s', '12.5s', '12.8s', '13.0s', '13.4s', '14.0s', '15.0s', '16.5s'], path.join(root, 'qa/sheets/intro-handoff.png'), { cols: 4, thumbW: 400, title: 'handoff (5.3)' });
+        }
         did = true;
       }
     }

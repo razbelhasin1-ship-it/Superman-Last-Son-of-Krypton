@@ -52,6 +52,12 @@ export class CameraRig {
   private readonly hit: SweepHit = { t: 0, point: new Vector3(), normal: new Vector3(), kind: 'none', id: -1 };
   /** Cinematic overrides. */
   readonly cine = { pos: new Vector3(), target: new Vector3(), fov: 20, roll: 0 };
+  /** Blend from a frozen pose into the chase camera (intro handoff). */
+  private blendT = 1;
+  private blendDur = 1;
+  private readonly blendPos = new Vector3();
+  private readonly blendQ = new Quaternion();
+  private blendFov = 60;
   private readonly world: CollisionWorld;
   initialized = false;
 
@@ -89,6 +95,25 @@ export class CameraRig {
     this.dist.reset(this.distForSpeed(s));
     this.allowedDist = 50;
     this.initialized = false;
+  }
+
+  /** Switch to chase, blending from the current camera pose over `seconds`. */
+  blendToChase(seconds: number, hero: HeroController): void {
+    this.blendPos.copy(this.curPos);
+    this.blendQ.copy(this.curQ);
+    this.blendFov = this.curFov;
+    this.mode = 'chase';
+    this.blendT = 0;
+    this.blendDur = Math.max(0.01, seconds);
+    // Point the aim along the camera's current view so the chase arm starts close to it.
+    const d = new Vector3(0, 0, -1).applyQuaternion(this.curQ);
+    this.yaw = Math.atan2(d.x, -d.z);
+    this.pitch = Math.asin(Math.max(-1, Math.min(1, d.y)));
+    this.viewYaw = this.yaw;
+    this.viewPitch = this.pitch;
+    this.fov.reset(this.fovForSpeed(hero.speed));
+    this.dist.reset(this.distForSpeed(hero.speed));
+    this.offset.set(this.blendPos.x - hero.pos.x, this.blendPos.y - hero.pos.y, this.blendPos.z - hero.pos.z);
   }
 
   /** Run the arm once with no smoothing so the first rendered frame is already framed. */
@@ -222,6 +247,13 @@ export class CameraRig {
     const lookDir = aimPoint.sub(camPos).normalize();
     lookQuat(lookDir, this.roll, this.curQ);
     this.curFov = clamp(this.fov.x + this.fovKick + this.userFovOffset, 20, 130) / this.zoom;
+    if (this.blendT < 1) {
+      this.blendT = Math.min(1, this.blendT + dt / this.blendDur);
+      const e = smoothstep(0, 1, this.blendT);
+      this.curPos.lerpVectors(this.blendPos, this.curPos.clone(), e);
+      this.curQ.slerpQuaternions(this.blendQ, this.curQ.clone(), e);
+      this.curFov = this.blendFov + (this.curFov - this.blendFov) * e;
+    }
     if (!this.initialized) this.syncPrev();
   }
 

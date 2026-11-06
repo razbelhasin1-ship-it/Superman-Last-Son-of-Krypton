@@ -189,3 +189,48 @@ export interface HeroBody {
 // ───────────────────────────────────────────────────────────── audio (owned by src/audio/)
 
 export type MusicState = 'silent' | 'menu' | 'intro' | 'hover' | 'flight' | 'speed' | 'incident' | 'triumph';
+
+// ───────────────────────────────────────────────────────────── powers (owned by src/powers/, src/physics/)
+
+/**
+ * What the game hands the powers module. Concrete types are imported structurally to keep this file
+ * dependency-free; see src/game/Game.ts for the implementation.
+ */
+export interface PowersHost {
+  /** HeroController (src/flight/HeroController.ts). */
+  readonly hero: unknown;
+  /** HeroVisual (src/hero/HeroVisual.ts): registerPose / setActionPose / addPostPoseHook / boneWorld. */
+  readonly visual: unknown;
+  /** CameraRig (src/camera/CameraRig.ts): mode 'firstPerson', zoom, addTrauma, kickFov. */
+  readonly rig: unknown;
+  readonly camera: Camera;
+  readonly scene: Scene;
+  readonly events: unknown;
+  /** The active world (test ground or city). */
+  readonly world: WorldLike;
+  /** FxDirector (src/fx/FxDirector.ts): particle systems, speedFx, ground FX, screenShock. */
+  readonly fx: unknown;
+  /** AudioEngine (src/audio/AudioEngine.ts). */
+  readonly audio: unknown;
+  /** Hud (src/ui/Hud.ts). */
+  readonly hud: unknown;
+  /** Slow the world (focus: 0.15, power wheel: 0.2) while the hero keeps full speed. */
+  setWorldTimeScale(scale: number): void;
+  /** Simulation time (s). */
+  time(): number;
+  /** Raise hope (kindness, saves) or collateral (careless damage). */
+  addHope(amount: number, reason: string): void;
+  addCollateral(amount: number, reason: string): void;
+}
+
+export interface PowersSystem {
+  /** Fixed step at real (hero) time; `worldDt` is scaled by focus. Input is the current frame. */
+  step(dt: number, worldDt: number, input: unknown): void;
+  /** Per rendered frame (visuals, HUD). */
+  frame(dt: number): void;
+  /** 0..1 solar charge (powers overboost, heat-vision overload, focus). */
+  readonly solarCharge: number;
+  /** Name of the active vision mode, if any ('xray' | 'telescope' | 'scan' | 'hearing' | null). */
+  readonly vision: string | null;
+  dispose?(): void;
+}

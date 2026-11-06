@@ -64,6 +64,9 @@ export class FxDirector {
   private readonly visual: HeroVisual;
   private readonly world: BoxCollisionWorld;
   clouds: CloudDeck | null = null;
+  /** Scripted mist (intro cloud burst) combined with the measured cloud density. */
+  introMist = 0;
+  private punchArmed = false;
   settings: Settings;
   onHint: (id: string, text: string) => void = () => {};
   onCollateral: (amount: number, reason: string) => void = () => {};
@@ -412,10 +415,23 @@ export class FxDirector {
 
     // Power launch punching through the cloud deck: horizontal shock ring + mist ring + hole.
     this.clouds?.tickHole(dt);
-    if (h.postLaunch > 0 && h.vel.y > 250 && h.lastLaunchCharge > 0.75) {
-      const deck = T.fx.cloudBase + 150;
-      if (this.prevHeroY < deck && h.pos.y >= deck) this.cloudPunch(h.pos.clone().setY(deck));
-    }
+    if (h.postLaunch > 0 && h.vel.y > 250 && h.lastLaunchCharge >= T.takeoff.punchCharge) {
+      // The shock front runs ~0.35 s ahead of the hero, so the hole is already open when he arrives.
+      const deck = T.fx.cloudBase - 100;
+      const lead = h.vel.y * 0.35;
+      if (this.prevHeroY + lead < deck && h.pos.y + lead >= deck) {
+        this.cloudPunch(h.pos.clone().setY(T.fx.cloudBase + 150));
+        this.punchArmed = true;
+      }
+      // Breaking out of the top: the cinematic burst (the hole keeps the mist below the in-cloud threshold).
+      const top = T.fx.cloudTop - 350;
+      if (this.punchArmed && this.prevHeroY < top && h.pos.y >= top) {
+        this.punchArmed = false;
+        this.flash = Math.max(this.flash, 0.55);
+        this.cloudBurst(camera, h.vel);
+        this.audio.whoosh(0.9, 0, 0.8);
+      }
+    } else this.punchArmed = false;
     this.prevHeroY = h.pos.y;
 
     // Cloud mist + burst.
@@ -443,7 +459,7 @@ export class FxDirector {
     const blurScale = this.settings.reducedMotionBlur ? 0.25 : 1;
     fx.set('uBlur', T.fx.motionBlurStrength * smoothstep(15, 260, s) * blurScale);
     fx.set('uTunnel', this.tunnel);
-    fx.set('uMist', clamp(this.mistLevel * 1.15 + this.flash * 0.22, 0, 0.97));
+    fx.set('uMist', clamp(Math.max(this.mistLevel * 1.15, this.introMist) + this.flash * 0.22, 0, 0.97));
     fx.set('uFxTime', this.time);
     this.flash *= 1 - expFactor(4, dt);
     fx.set('uHeroDist', camera.position.distanceTo(this.visual.root.position));

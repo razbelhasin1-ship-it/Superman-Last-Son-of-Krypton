@@ -7,7 +7,7 @@ import type { HeroController } from '../flight/HeroController.ts';
 import { HIP } from '../flight/HeroController.ts';
 import { BONES, BONE_COUNT, PARENT_INDEX, boneIndex } from './skeleton.ts';
 import { POSES, gaitPose } from './poses.ts';
-import { PoseSprings, addRotation, blendPoses, evaluatePose, makePoseData, type PoseData } from './pose.ts';
+import { PoseSprings, addRotation, blendPoses, evaluatePose, makePoseData, type PoseData, type PoseSpec } from './pose.ts';
 import { Cape } from './Cape.ts';
 import { buildGreybox } from './GreyboxBody.ts';
 import { clamp01, expFactor, smoothstep, DEG, lerp } from '../core/math.ts';
@@ -44,6 +44,9 @@ export class HeroVisual {
   private bobOffset = 0;
   /** Gallery / cinematic override: force one pose. */
   override: PoseOverride = null;
+  /** Action layer (powers, rescue): a named pose blended over masked bones. */
+  private action: { name: string; weight: number; mask: Uint8Array } | null = null;
+  private readonly postPoseHooks: ((pose: PoseData, visual: HeroVisual, dt: number) => void)[] = [];
   /** Extra additive layers set by the game (look target in model space, jaw, eyes). */
   lookYaw = 0;
   lookPitch = 0;
@@ -236,6 +239,31 @@ export class HeroVisual {
     addRotation(layered, boneIndex('head'), [0, 1, 0], this.lookYaw * 0.65);
     addRotation(layered, boneIndex('head'), [1, 0, 0], -this.lookPitch * 0.7);
     if (this.jaw > 0) addRotation(layered, boneIndex('jaw'), [1, 0, 0], this.jaw * 14 * DEG);
+    if (this.action) {
+      const src = this.library.get(this.action.name)!.q;
+      const w = this.action.weight;
+      const q = layered.q;
+      for (let i = 0; i < BONE_COUNT; i++) {
+        if (!this.action.mask[i]) continue;
+        const o = i * 4;
+        const dot = q[o]! * src[o]! + q[o + 1]! * src[o + 1]! + q[o + 2]! * src[o + 2]! + q[o + 3]! * src[o + 3]!;
+        const s2 = dot < 0 ? -w : w;
+        let x = q[o]! * (1 - w) + src[o]! * s2;
+        let y = q[o + 1]! * (1 - w) + src[o + 1]! * s2;
+        let z = q[o + 2]! * (1 - w) + src[o + 2]! * s2;
+        let ww = q[o + 3]! * (1 - w) + src[o + 3]! * s2;
+        const l = Math.hypot(x, y, z, ww) || 1;
+        x /= l;
+        y /= l;
+        z /= l;
+        ww /= l;
+        q[o] = x;
+        q[o + 1] = y;
+        q[o + 2] = z;
+        q[o + 3] = ww;
+      }
+    }
+    for (const hook of this.postPoseHooks) hook(layered, this, dt);
     this.applyToBones(layered);
 
     // Hover bob (visual only).
@@ -315,6 +343,35 @@ export class HeroVisual {
   /** World position of a bone (after frame()). */
   boneWorld(name: string, out: Vector3): Vector3 {
     return out.setFromMatrixPosition(this.bones[boneIndex(name)]!.matrixWorld);
+  }
+
+  /** Register an extra pose (e.g. heat-vision stance) so it can be used by overrides/actions. */
+  registerPose(name: string, spec: PoseSpec): void {
+    this.library.set(name, evaluatePose(spec));
+  }
+
+  /**
+   * Blend a named pose over the current one for a bone mask ('upper' = spine/neck/head/arms/hands,
+   * 'arms' = clavicles→fingers, 'full' = every bone). weight 0 removes the layer.
+   */
+  setActionPose(name: string | null, weight = 1, mask: 'upper' | 'arms' | 'full' = 'upper'): void {
+    if (!name || weight <= 0 || !this.library.has(name)) {
+      this.action = null;
+      return;
+    }
+    const m = new Uint8Array(BONE_COUNT);
+    for (let i = 0; i < BONE_COUNT; i++) {
+      const n = BONES[i]!.name;
+      const arm = /clavicle|arm|hand|thumb|index|middle|ring|pinky/.test(n);
+      const upper = arm || /spine0[34]|neck|head|jaw|eye|lid|brow/.test(n);
+      m[i] = mask === 'full' ? 1 : mask === 'arms' ? (arm ? 1 : 0) : upper ? 1 : 0;
+    }
+    this.action = { name, weight: Math.min(1, weight), mask: m };
+  }
+
+  /** Run `fn` after layering, before bones are written (IK, grips, look-at). */
+  addPostPoseHook(fn: (pose: PoseData, visual: HeroVisual, dt: number) => void): void {
+    this.postPoseHooks.push(fn);
   }
 
   setPoseOverride(name: string | null): void {

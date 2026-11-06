@@ -22,9 +22,9 @@ const CSS = `
 .hud .hint { position: absolute; left: 50%; top: 66%; transform: translateX(-50%); font-size: clamp(13px, 1.25vw, 19px);
   padding: .45em 1em; border-radius: 6px; background: rgba(5,20,45,.38); backdrop-filter: blur(3px); opacity: 0; transition: opacity .4s ease; white-space: nowrap; }
 .hud .hint.show { opacity: 1; }
-.hud .sub { position: absolute; left: 50%; bottom: 7.5vh; transform: translateX(-50%); font-size: 2.2vh; color: #fff;
-  text-shadow: 0 0 6px rgba(0,0,0,.7), 0 1px 2px rgba(0,0,0,.8); opacity: 0; transition: opacity .25s ease; white-space: nowrap; }
-.hud .sub.show { opacity: 1; }
+.subtitle { position: fixed; left: 50%; bottom: 5.6vh; transform: translateX(-50%); font-size: 2.2vh; color: #fff; z-index: 25;
+  font-family: 'Inter','Segoe UI','Helvetica Neue',Arial,sans-serif; font-weight: 500; letter-spacing: .01em; pointer-events: none;
+  text-shadow: 0 0 6px rgba(0,0,0,.55), 0 1px 2px rgba(0,0,0,.7); opacity: 0; white-space: nowrap; }
 .hud .burst { position: absolute; right: 3.2vw; bottom: calc(5.5vh + clamp(70px, 7vw, 110px)); width: 120px; height: 3px; background: rgba(255,255,255,.18); border-radius: 2px; overflow: hidden; }
 .hud .burst b { display: block; height: 100%; background: #ff6a3d; width: 0%; }
 .hud .cross { position: absolute; left: 50%; top: 50%; width: 6px; height: 6px; margin: -3px 0 0 -3px; border-radius: 50%; border: 1.5px solid rgba(255,255,255,.7); opacity: .0; transition: opacity .3s; }
@@ -57,16 +57,17 @@ export class Hud {
         <div class="tier">${T.tiers.map(() => '<i></i>').join('')}</div><div class="tname">CRUISE</div></div>
       <div class="burst"><b></b></div>
       <div class="cross"></div>
-      <div class="hint"></div>
-      <div class="sub"></div>`;
+      <div class="hint"></div>`;
     parent.appendChild(this.el);
+    this.subEl = document.createElement('div');
+    this.subEl.className = 'subtitle';
+    parent.appendChild(this.subEl);
     this.spdV = this.el.querySelector('.spd .v')!;
     this.machV = this.el.querySelector('.spd .m')!;
     this.tierEls = [...this.el.querySelectorAll<HTMLElement>('.tier i')];
     this.tname = this.el.querySelector('.tname')!;
     this.altV = this.el.querySelector('.alt .v')!;
     this.hintEl = this.el.querySelector('.hint')!;
-    this.subEl = this.el.querySelector('.sub')!;
     this.burstBar = this.el.querySelector('.burst b')!;
   }
 
@@ -104,10 +105,11 @@ export class Hud {
     this.hintTimer = seconds;
   }
 
-  subtitle(text: string | null): void {
-    if (text) {
-      this.subEl.textContent = text;
-      this.subEl.classList.add('show');
-    } else this.subEl.classList.remove('show');
+  /** Subtitle with explicit opacity (0 hides). Independent of the HUD fade. */
+  subtitle(text: string | null, opacity = 1): void {
+    if (text && opacity > 0.001) {
+      if (this.subEl.textContent !== text) this.subEl.textContent = text;
+      this.subEl.style.opacity = String(opacity);
+    } else this.subEl.style.opacity = '0';
   }
 }
