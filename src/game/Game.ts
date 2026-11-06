@@ -25,11 +25,15 @@ import { SCRIPTS, resetScriptState, type FlightScript, type ScriptHost } from '.
 import { DebugPanel } from '../debug/DebugPanel.ts';
 import { DofEffect, GradeEffect } from '../fx/CinemaEffects.ts';
 import { Menu } from '../ui/Menu.ts';
+import { MapView } from '../ui/MapView.ts';
+import { PhotoPanel, type PhotoValues } from '../ui/PhotoPanel.ts';
+import { PhotoMode } from '../camera/PhotoMode.ts';
+import { frontPage, type PaperState } from '../ui/headlines.ts';
 import { IntroDirector } from '../intro/IntroDirector.ts';
 import { T } from '../tuning.ts';
 import { clamp, expFactor } from '../core/math.ts';
 
-export type GameState = 'boot' | 'menu' | 'intro' | 'play' | 'paused' | 'gallery';
+export type GameState = 'boot' | 'menu' | 'intro' | 'play' | 'paused' | 'photo' | 'gallery';
 
 export class Game {
   readonly params: BootParams;
@@ -89,6 +93,18 @@ export class Game {
   readonly grade = new GradeEffect();
   readonly menu: Menu | null;
   readonly intro: IntroDirector;
+  readonly pauseMenu: Menu;
+  readonly photo: PhotoMode;
+  readonly photoPanel: PhotoPanel;
+  readonly mapView: MapView;
+  /** Results of finished incidents, newest first (the life module reports them). */
+  readonly incidentLog: { headline: string; saved: number }[] = [];
+  private mapFrom: 'play' | 'paused' = 'play';
+  private readonly aimBeforePhoto = { yaw: 0, pitch: 0 };
+  /** Ignore the pause key briefly after leaving a menu (the Esc that closed it is still queued). */
+  private menuCooldown = 0;
+  private hudWasVisible = true;
+  day = 1;
 
   constructor(
     canvas: HTMLCanvasElement,
@@ -149,6 +165,20 @@ export class Game {
       subtitlesOn: () => this.settings.subtitles,
     });
     this.menu = ext.menu !== undefined ? ext.menu : null;
+    this.pauseMenu = this.menu ?? new Menu(ui, this.settings, { onPlay: () => this.beginIntro(), onSettingsChanged: () => this.saveSettings() });
+    this.pauseMenu.setHooks({
+      onResume: () => this.resume(),
+      onPhoto: () => this.enterPhoto(),
+      onMap: () => this.openMap('paused'),
+      onQuit: () => this.quitToTitle(),
+    });
+    this.photo = new PhotoMode(canvas, this.world.collision);
+    this.photoPanel = new PhotoPanel(ui, { onChange: (v) => this.applyPhotoValues(v), onExit: () => this.exitPhoto() });
+    this.mapView = new MapView(ui);
+    this.mapView.onClose = () => this.onMapClosed();
+    document.addEventListener('pointerlockchange', () => {
+      if (!document.pointerLockElement && this.state === 'play' && !this.params.qa) this.pause();
+    });
     this.events.on('hitstop', ({ frames }) => (this.hitstop = Math.max(this.hitstop, frames)));
     this.events.on('shake', ({ amount }) => this.rig.addTrauma(amount));
 
@@ -249,6 +279,21 @@ export class Game {
   // ───────────────────────────────────────────────────────────── simulation step
 
   private step(dt: number): void {
+    if (this.state === 'paused') {
+      this.input.sample(dt, this.frameIn);
+      return;
+    }
+    if (this.state === 'photo') {
+      this.input.sample(dt, this.frameIn);
+      if (this.frameIn.pressed.has('photo') || this.frameIn.pressed.has('pause')) {
+        this.exitPhoto();
+        return;
+      }
+      this.photo.step(dt, this.frameIn);
+      this.photo.apply(this.rig);
+      this.rig.step(dt, this.hero);
+      return;
+    }
     if (this.hitstop > 0) {
       // Hit-stop: freeze the world and the hero for a couple of frames; the camera keeps shaking.
       this.hitstop--;
@@ -284,6 +329,13 @@ export class Game {
       if (done) this.state = 'play';
       return;
     }
+    if (this.menuCooldown > 0) this.menuCooldown -= dt;
+    if (this.state === 'play' && !this.script) {
+      const f = this.frameIn.pressed;
+      if (f.has('pause') && this.menuCooldown <= 0) return this.pause();
+      if (f.has('photo')) return this.enterPhoto();
+      if (f.has('map')) return this.openMap('play');
+    }
     if (this.state === 'play') {
       this.hero.step(this.frameIn, this.rig, dt);
       this.powers?.step(dt, wdt, this.frameIn);
@@ -300,7 +352,11 @@ export class Game {
     this.stepViewProjFromRig();
     this.havePrevVP = true;
     this.fx.step(dt);
-    if (T.sky.timeFlows && !this.params.qa) this.hour = (this.hour + wdt * (24 / (T.sky.dayMinutes * 60))) % 24;
+    if (T.sky.timeFlows && !this.params.qa) {
+      const h = this.hour + wdt * (24 / (T.sky.dayMinutes * 60));
+      if (h >= 24) this.day++;
+      this.hour = h % 24;
+    }
     if (this.hero.mode === 'flight' && this.hero.dir.y < -0.5 && this.hero.speed > 60 && this.hero.altitude > 400) {
       this.hud.hint('pullup', 'Pull up — S / Space to level out', 4);
     }
@@ -361,6 +417,7 @@ export class Game {
     this.fx.frame(fxDt, cam, this.havePrevVP ? this.prevViewProj : null, night);
     this.powers?.frame(hudDt);
     this.render.sky.setTime(this.time);
+    if (this.state === 'photo') this.photoDof();
     this.render.vignette.darkness = T.fx.vignetteBase + T.fx.vignetteSpeed * Math.min(1, this.hero.speed / 2400);
     this.render.render(frameDt);
     if (this.state === 'play' || this.state === 'intro') {
@@ -386,6 +443,178 @@ export class Game {
           `clouds ${this.clouds.visibleCount}  mist ${this.fx.mist01.toFixed(2)}`,
       );
     }
+  }
+
+  // ───────────────────────────────────────────────────────────── pause · photo · map
+
+  paperState(): PaperState {
+    return {
+      day: this.day,
+      hour: this.hour,
+      hope: this.hope,
+      collateral: this.collateral,
+      saves: this.incidentLog.reduce((n, i) => n + i.saved, 0),
+      booms: this.run.booms,
+      topSpeed: this.run.topSpeed,
+      distanceKm: this.run.distance / 1000,
+      discoveries: this.discovered.size,
+      incidents: this.incidentLog,
+    };
+  }
+
+  private hideHud(): void {
+    this.hudWasVisible = this.hud.visible;
+    this.hud.setVisible(false);
+  }
+
+  private restoreHud(): void {
+    this.hud.setVisible(this.hudWasVisible);
+  }
+
+  /** Blurred, frozen game behind the pause menu / map. */
+  private setBackdropBlur(on: boolean): void {
+    this.render.setPreEffectEnabled('dof', on);
+    if (on) {
+      this.dof.set('uFocusDist', 0.3);
+      this.dof.set('uFocusRange', 0.1);
+      this.dof.set('uMaxBlur', 0.006);
+      this.dof.set('uNearBlur', 0);
+      this.dof.set('uAmount', 1);
+    }
+  }
+
+  pause(): void {
+    if (this.state !== 'play' && this.state !== 'paused') return;
+    const wasPlaying = this.state === 'play';
+    this.state = 'paused';
+    this.input.enabled = false;
+    this.input.releaseAll();
+    if (document.pointerLockElement) document.exitPointerLock();
+    if (wasPlaying) this.hideHud();
+    this.setBackdropBlur(true);
+    this.pauseMenu.showPause({ page: frontPage(this.paperState(), this.params.seed), hope: this.hope, collateral: this.collateral });
+  }
+
+  resume(): void {
+    if (this.state !== 'paused') return;
+    this.pauseMenu.hide();
+    this.state = 'play';
+    this.setBackdropBlur(false);
+    this.restoreHud();
+    this.input.releaseAll();
+    this.input.clearPending();
+    this.input.enabled = true;
+    this.menuCooldown = 0.3;
+    if (!this.params.qa) this.input.requestPointerLock();
+  }
+
+  enterPhoto(): void {
+    if (this.state !== 'play' && this.state !== 'paused') return;
+    if (this.state === 'play') this.hideHud();
+    this.pauseMenu.hide();
+    this.state = 'photo';
+    if (document.pointerLockElement) document.exitPointerLock();
+    this.input.releaseAll();
+    this.input.enabled = true;
+    this.aimBeforePhoto.yaw = this.rig.yaw;
+    this.aimBeforePhoto.pitch = this.rig.pitch;
+    const cam = this.render.camera;
+    const dir = new Vector3(0, 0, -1).applyQuaternion(cam.quaternion);
+    this.photo.enter(cam.position, dir, cam.fov, this.visual.root.position);
+    this.photoPanel.sync({ fov: this.photo.fov, roll: 0, hour: this.hour, autoFocus: true, aperture: this.photo.aperture, filter: 'natural' });
+    this.photoPanel.show();
+    this.render.setPreEffectEnabled('dof', true);
+  }
+
+  exitPhoto(): void {
+    if (this.state !== 'photo') return;
+    this.photo.exit();
+    this.photoPanel.hide();
+    this.grade.applyFilter('natural');
+    this.render.setPreEffectEnabled('dof', false);
+    this.state = 'play';
+    this.rig.blendToChase(0.45, this.hero);
+    // Back to the aim the player had, not wherever the photo camera looked.
+    this.rig.yaw = this.aimBeforePhoto.yaw;
+    this.rig.pitch = this.aimBeforePhoto.pitch;
+    this.restoreHud();
+    this.input.releaseAll();
+    this.input.clearPending();
+    this.menuCooldown = 0.3;
+    if (!this.params.qa) this.input.requestPointerLock();
+  }
+
+  private applyPhotoValues(v: PhotoValues): void {
+    this.photo.fov = v.fov;
+    this.photo.roll = (v.roll * Math.PI) / 180;
+    this.photo.aperture = v.aperture;
+    this.photo.autoFocus = v.autoFocus;
+    this.photo.focusDist = v.focusDist;
+    if (Math.abs(v.hour - this.hour) > 1e-3) {
+      this.hour = v.hour;
+      this.render.atmosphere.dirty = true;
+    }
+    this.grade.applyFilter(v.filter);
+  }
+
+  private photoDof(): void {
+    const f = this.photo.focus;
+    const a = this.photo.aperture;
+    this.dof.set('uFocusDist', f);
+    this.dof.set('uFocusRange', Math.max(0.5, f * 0.12));
+    this.dof.set('uMaxBlur', 0.014 * a);
+    this.dof.set('uNearBlur', 0.7);
+    this.dof.set('uAmount', a > 0.01 ? 1 : 0);
+  }
+
+  /** Map extent: the whole city incl. Stryker's Island (spec 9.1). */
+  private static readonly MAP = { cx: 700, cz: 0, half: 6400 };
+
+  openMap(from: 'play' | 'paused'): void {
+    if (from === 'play') {
+      if (this.state !== 'play') return;
+      this.state = 'paused';
+      this.hideHud();
+      this.input.enabled = false;
+      this.input.releaseAll();
+      if (document.pointerLockElement) document.exitPointerLock();
+    }
+    this.mapFrom = from;
+    this.pauseMenu.hide();
+    this.setBackdropBlur(true);
+    const m = Game.MAP;
+    const px = Math.min(1600, Math.min(window.innerWidth, window.innerHeight) * Math.min(2, window.devicePixelRatio || 1));
+    const img = this.render.renderTopDown(m.cx, m.cz, m.half, px, [this.clouds.mesh, this.fx.group, this.visual.root]);
+    this.mapView.show(img, m, {
+      landmarks: this.world.landmarks ?? [],
+      districts: this.world.districts ?? [],
+      discovered: this.discovered,
+      hero: { x: this.hero.pos.x, z: this.hero.pos.z, heading: this.hero.heading },
+      incidents: [],
+    });
+  }
+
+  private onMapClosed(): void {
+    if (this.mapFrom === 'paused') this.pause();
+    else this.resume();
+  }
+
+  quitToTitle(): void {
+    this.pauseMenu.hide();
+    this.mapView.close();
+    this.photo.exit();
+    this.photoPanel.hide();
+    this.setBackdropBlur(false);
+    this.grade.applyFilter('natural');
+    this.worldTimeTarget = this.worldTimeScale = 1;
+    this.hud.setFade(0);
+    this.restoreHud();
+    this.input.enabled = false;
+    this.input.releaseAll();
+    if (document.pointerLockElement) document.exitPointerLock();
+    this.intro.placeHero();
+    this.state = 'menu';
+    this.pauseMenu.show();
   }
 
   // ───────────────────────────────────────────────────────────── powers host

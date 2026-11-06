@@ -220,6 +220,15 @@ export class Input {
     this.keysDown.clear();
   }
 
+  /** Drop presses queued but not yet sampled (e.g. while a menu owned the keyboard). */
+  clearPending(): void {
+    this.pendingPressed.clear();
+    this.pendingDouble.clear();
+    this.mouseDX = this.mouseDY = 0;
+    this.wheelAccum = 0;
+    this.zoomAccum = 0;
+  }
+
   /** Called once per render frame: returns look delta in radians (yaw right +, pitch up +). */
   consumeLook(frameDt: number, padYawRate: number, padPitchRate: number, mouseScale: number): { dx: number; dy: number } {
     if (this.virtual || !this.enabled) {

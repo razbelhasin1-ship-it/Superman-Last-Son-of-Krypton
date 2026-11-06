@@ -61,7 +61,9 @@ const CSS = `
 .hud .float { position: absolute; right: 3.2vw; top: calc(2.6vh + 22px); font-size: 12px; font-weight: 700; opacity: 0; transition: opacity .3s, transform 1.2s ease-out; }
 
 /* District banner */
-.hud .banner { position: absolute; left: 50%; top: 24vh; transform: translate(-50%, 0); text-align: center; opacity: 0; transition: opacity .6s ease, letter-spacing 1.4s ease; }
+.hud .banner { position: absolute; left: 50%; top: 24vh; transform: translate(-50%, 0); text-align: center; opacity: 0; transition: opacity .6s ease, letter-spacing 1.4s ease;
+  padding: 18px 70px 16px; background: radial-gradient(ellipse at center, rgba(4,16,40,.42) 0%, rgba(4,16,40,.22) 45%, rgba(4,16,40,0) 72%);
+  text-shadow: 0 1px 3px rgba(0,0,0,.7), 0 0 18px rgba(0,0,0,.35); }
 .hud .banner.show { opacity: 1; }
 .hud .banner .t { font-size: clamp(20px, 2.4vw, 38px); font-weight: 800; letter-spacing: .5em; padding-left: .5em; }
 .hud .banner.show .t { letter-spacing: .38em; }

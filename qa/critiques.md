@@ -32,3 +32,11 @@ One line per reviewed image: what is wrong → what will change. Newest first wi
 - `flight-brake-mach2` v2 — script kept thrusting before the brake; constant decel felt sluggish from Mach 2+ → script coasts; brake decel gains a speed-proportional term (still ≈0.5 s from cruise, ≈1.4 s from Mach 1 per tests).
 - `flight-dive-landing` v2 — dive reads correctly (head-first, cape over the back), crater + debris + shockwave work; debris chunks were oversized → shrunk; crater bowl reads flat (polish gate).
 - `flight-cloud-flythrough` v2 — cumulus looks great on approach, whiteout inside works; climb too shallow to break out → steeper aim.
+
+## In-game UI (spec 12.2, 7.1, 7.5)
+- `qa/shots/ui-hud.png` — **good**: compass bar with incident marker + distance, Hope/Collateral top-right, district banner readable over bright sky (soft backing), landmark discovery card left; nothing over the hero.
+- `qa/shots/ui-pause.png` — **good**: frozen, blurred world; PAUSED menu + Daily Planet front page (original masthead + globe glyph), tone-aware headline, briefs, hope/collateral.
+- `qa/shots/ui-map.png` — **good** (test ground): top-down satellite render, north up, hero arrow; landmark/district labels wait for the city.
+- `qa/shots/ui-photo.png` — **good**: free camera, golden filter, depth of field on the hero, compact panel at the bottom.
+- v1 — Esc that resumed was re-queued as a pause press (menu listener runs before input's) → stale presses cleared on resume + 0.3 s pause-key cooldown.
+

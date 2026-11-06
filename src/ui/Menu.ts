@@ -4,11 +4,23 @@
  * Original typographic title (not a film logo); the gold-on-red shield appears once as a motif.
  */
 import type { Settings } from './settings.ts';
+import type { FrontPage } from './headlines.ts';
 
 export interface MenuHooks {
   onPlay(): void;
   onSettingsChanged(s: Settings): void;
   onUiSound?(kind: 'move' | 'select' | 'back'): void;
+  /** Pause menu actions (spec 7.1: Esc). */
+  onResume?(): void;
+  onPhoto?(): void;
+  onMap?(): void;
+  onQuit?(): void;
+}
+
+export interface PauseInfo {
+  page: FrontPage;
+  hope: number;
+  collateral: number;
 }
 
 const CSS = `
@@ -55,7 +67,27 @@ const CSS = `
 .mm .tog.on::after { transform: translateX(22px); }
 .mm .group { margin: 14px 0 4px; font-size: 11px; letter-spacing: .3em; opacity: .55; font-weight: 700; }
 .mm .back { margin-top: 16px; }
+.mm .ptitle { font-weight: 900; font-style: italic; letter-spacing: .3em; font-size: clamp(26px, 3vw, 48px); margin: 0 0 clamp(18px, 3vh, 36px);
+  background: linear-gradient(180deg, #fffdf4 0%, #f5c542 70%, #e19a22 100%); -webkit-background-clip: text; background-clip: text; color: transparent;
+  filter: drop-shadow(0 2px 0 #8f141c) drop-shadow(0 6px 14px rgba(0,0,0,.4)); }
+.mm .paper { position: absolute; right: clamp(24px, 6vw, 120px); top: 50%; width: min(520px, 40vw); transform: translateY(-50%) rotate(-1.4deg);
+  background: linear-gradient(180deg, #f6f1e4, #ece4d0); color: #1b1814; padding: clamp(14px, 1.6vw, 26px) clamp(16px, 1.8vw, 30px) clamp(16px, 2vw, 28px);
+  box-shadow: 0 30px 70px rgba(0,0,0,.45), 0 2px 0 rgba(255,255,255,.4) inset; font-family: Georgia, 'Times New Roman', Times, serif; text-shadow: none;
+  transition: opacity .45s ease, transform .45s cubic-bezier(.2,.7,.2,1); pointer-events: none; }
+.mm .paper.hidden { opacity: 0; transform: translateY(-46%) rotate(2deg); }
+.mm .paper .mast { display: flex; align-items: center; justify-content: center; gap: .45em; font-weight: 900; letter-spacing: .08em; font-size: clamp(22px, 2.5vw, 40px); }
+.mm .paper .mast svg { width: 1.05em; height: 1.05em; }
+.mm .paper .dl { display: flex; justify-content: space-between; border-top: 2px solid #1b1814; border-bottom: 1px solid #1b1814; margin: 6px 0 12px; padding: 3px 0; font-size: 10.5px; letter-spacing: .14em; font-family: 'Segoe UI', Arial, sans-serif; }
+.mm .paper h3 { margin: 0; font-size: clamp(20px, 2.15vw, 34px); line-height: 1.04; font-weight: 900; letter-spacing: -.005em; text-transform: uppercase; }
+.mm .paper .deck { font-style: italic; font-size: clamp(12px, 1.02vw, 15px); margin: 8px 0 12px; line-height: 1.35; color: #3a342b; }
+.mm .paper .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 16px; border-top: 1px solid rgba(27,24,20,.5); padding-top: 9px; }
+.mm .paper .cols div { font-size: 11px; font-weight: 700; letter-spacing: .04em; line-height: 1.25; font-family: 'Segoe UI', Arial, sans-serif; }
+.mm .paper .cols div::before { content: '■ '; font-size: 8px; vertical-align: 2px; color: #b5121b; }
+.mm .paper .foot2 { margin-top: 12px; display: flex; gap: 18px; font-size: 11px; letter-spacing: .16em; font-weight: 700; font-family: 'Segoe UI', Arial, sans-serif; color: #4a4237; }
+.mm .paper .foot2 b { color: #b5121b; }
+.mm.pause .shade { background: linear-gradient(90deg, rgba(4,16,40,.7) 0%, rgba(4,16,40,.45) 40%, rgba(4,16,40,.25) 100%); }
 .mm.out .panel { opacity: 0; transform: translate(-36px, -50%); filter: blur(8px); }
+.mm.out .paper { opacity: 0; }
 .mm.out .shade { opacity: 0; }
 .mm.out .foot, .mm.out .hintbar { opacity: 0; transition: opacity .35s ease; }
 `;
@@ -70,7 +102,11 @@ const SHIELD_SVG = `
   <path d="M23 36 L64 42 Q74 44 72 52 Q70 58 62 62 L59 64 L66 52 Q67 48 60 47 L27 41 Z" fill="url(#mmg)"/>
 </svg>`;
 
-type Screen = 'main' | 'controls' | 'settings';
+type Screen = 'main' | 'pause' | 'controls' | 'settings';
+
+const GLOBE_SVG = `<svg viewBox="0 0 32 32" aria-hidden="true"><g fill="none" stroke="#1b1814" stroke-width="1.6">
+  <circle cx="16" cy="16" r="13"/><ellipse cx="16" cy="16" rx="6" ry="13"/><path d="M3 16 H29 M5.5 9 H26.5 M5.5 23 H26.5"/></g>
+  <path d="M1 20 Q16 9 31 13" fill="none" stroke="#b5121b" stroke-width="2.2"/></svg>`;
 
 const CONTROLS: [string, string, string][] = [
   ['Look / steer', 'Mouse', 'Right stick'],
@@ -101,11 +137,15 @@ const CONTROLS: [string, string, string][] = [
 export class Menu {
   readonly el: HTMLDivElement;
   private screen: Screen = 'main';
+  private home: 'main' | 'pause' = 'main';
+  private paper!: HTMLDivElement;
   private focusIdx = 0;
   private panels: Record<Screen, HTMLDivElement>;
   private visible = false;
   private readonly settings: Settings;
-  private readonly hooks: MenuHooks;
+  private hooks: MenuHooks;
+  /** Ignore a resume request right after pausing (the Esc that released pointer lock). */
+  private resumeGuard = 0;
   private padPrev: boolean[] = [];
   private padAxisLatch = 0;
   private rafId = 0;
@@ -142,8 +182,22 @@ export class Menu {
     settingsP.className = 'panel hidden';
     settingsP.innerHTML = `<div class="card"><h2>SETTINGS</h2><div class="rows"></div>
       <nav class="back"><button class="mi" data-act="back">BACK</button></nav></div>`;
-    this.el.append(main, controls, settingsP);
-    this.panels = { main, controls, settings: settingsP };
+    const pause = document.createElement('div');
+    pause.className = 'panel hidden';
+    pause.innerHTML = `
+      <div class="ptitle">PAUSED</div>
+      <nav>
+        <button class="mi" data-act="resume">RESUME</button>
+        <button class="mi" data-act="photo">PHOTO MODE</button>
+        <button class="mi" data-act="map">MAP</button>
+        <button class="mi" data-act="controls">CONTROLS</button>
+        <button class="mi" data-act="settings">SETTINGS</button>
+        <button class="mi" data-act="quit">QUIT TO TITLE</button>
+      </nav>`;
+    this.paper = document.createElement('div');
+    this.paper.className = 'paper hidden';
+    this.el.append(main, pause, controls, settingsP, this.paper);
+    this.panels = { main, pause, controls, settings: settingsP };
     parent.appendChild(this.el);
     this.buildSettings(settingsP.querySelector('.rows') as HTMLDivElement);
     this.el.addEventListener('click', (e) => {
@@ -248,6 +302,7 @@ export class Menu {
     this.panels[this.screen].classList.add('hidden');
     this.screen = screen;
     this.panels[screen].classList.remove('hidden');
+    this.paper.classList.toggle('hidden', screen !== 'pause');
     this.focusIdx = 0;
     this.paintFocus();
   }
@@ -263,7 +318,16 @@ export class Menu {
       this.go(act);
     } else if (act === 'back') {
       this.hooks.onUiSound?.('back');
-      this.go('main');
+      this.go(this.home);
+    } else if (act === 'resume' && performance.now() < this.resumeGuard) {
+      return;
+    } else if (act === 'resume' || act === 'photo' || act === 'map' || act === 'quit') {
+      this.hooks.onUiSound?.(act === 'resume' ? 'back' : 'select');
+      this.hide();
+      if (act === 'resume') this.hooks.onResume?.();
+      else if (act === 'photo') this.hooks.onPhoto?.();
+      else if (act === 'map') this.hooks.onMap?.();
+      else this.hooks.onQuit?.();
     }
   }
 
@@ -287,7 +351,9 @@ export class Menu {
         e.preventDefault();
       }
     } else if (e.code === 'Escape' || e.code === 'Backspace') {
-      if (this.screen !== 'main') this.activate('back');
+      if (this.screen === 'pause') {
+        if (e.code === 'Escape') this.activate('resume');
+      } else if (this.screen !== 'main') this.activate('back');
     }
   }
 
@@ -316,13 +382,38 @@ export class Menu {
       this.paintFocus();
     }
     if (edge(0)) this.activate(items[this.focusIdx]?.dataset.act ?? '');
-    if (edge(1) && this.screen !== 'main') this.activate('back');
+    if (edge(1) && this.screen === 'pause') this.activate('resume');
+    else if (edge(1) && this.screen !== 'main') this.activate('back');
+    if (edge(9) && this.screen === 'pause') this.activate('resume');
     this.padPrev = btn;
   };
 
   show(): void {
     this.visible = true;
+    this.home = 'main';
+    this.el.classList.remove('pause');
     this.go('main');
+    this.el.classList.remove('out');
+    cancelAnimationFrame(this.rafId);
+    this.rafId = requestAnimationFrame(this.pollPad);
+  }
+
+  /** Pause menu over the frozen game, with the Daily Planet front page beside it. */
+  showPause(info: PauseInfo): void {
+    const p = info.page;
+    const esc = (t: string) => t.replace(/[&<>]/g, (c) => (c === '&' ? '&amp;' : c === '<' ? '&lt;' : '&gt;'));
+    this.paper.innerHTML = `
+      <div class="mast">${GLOBE_SVG}<span>DAILY PLANET</span></div>
+      <div class="dl"><span>${esc(p.dateline)}</span><span>EVENING EDITION</span></div>
+      <h3>${esc(p.headline)}</h3>
+      <div class="deck">${esc(p.deck)}</div>
+      <div class="cols">${p.briefs.map((b) => `<div>${esc(b)}</div>`).join('')}</div>
+      <div class="foot2"><span>HOPE <b>${Math.round(info.hope)}</b></span><span>COLLATERAL <b>${Math.round(info.collateral)}</b></span></div>`;
+    this.visible = true;
+    this.resumeGuard = performance.now() + 350;
+    this.home = 'pause';
+    this.el.classList.add('pause');
+    this.go('pause');
     this.el.classList.remove('out');
     cancelAnimationFrame(this.rafId);
     this.rafId = requestAnimationFrame(this.pollPad);
@@ -332,6 +423,11 @@ export class Menu {
     this.visible = false;
     this.el.classList.add('out');
     cancelAnimationFrame(this.rafId);
+  }
+
+  /** Add or replace hooks (the game adds the pause actions to the title menu instance). */
+  setHooks(h: Partial<MenuHooks>): void {
+    this.hooks = { ...this.hooks, ...h };
   }
 
   get isVisible(): boolean {

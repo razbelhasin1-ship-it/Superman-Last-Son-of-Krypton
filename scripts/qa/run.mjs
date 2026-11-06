@@ -235,7 +235,7 @@ async function main() {
       await runShot();
       did = true;
     }
-    for (const mod of ['menu', 'intro', 'hero', 'landmarks', 'skyline', 'powers', 'trace-emblem', 'golden', 'incidents', 'trailer', 'perf']) {
+    for (const mod of ['menu', 'intro', 'ui', 'hero', 'landmarks', 'skyline', 'powers', 'trace-emblem', 'golden', 'incidents', 'trailer', 'perf']) {
       if (flag(mod)) {
         const m = await import(`./tasks/${mod}.mjs`);
         await m.default({ root, browser, server, openGame, shot, contactSheet, opt, flag, issues, runFlightScript, ensureDir });

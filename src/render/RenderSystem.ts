@@ -15,9 +15,12 @@ import {
   Vector3,
   WebGLRenderer,
   type Texture,
-  type WebGLRenderTarget,
+  WebGLRenderTarget,
   Fog,
   AmbientLight,
+  OrthographicCamera,
+  DataUtils,
+  type Object3D,
 } from 'three';
 import {
   BlendFunction,
@@ -305,6 +308,72 @@ export class RenderSystem {
       triangles: this.renderer.info.render.triangles,
       frameMs: performance.now() - t0,
     };
+  }
+
+  /**
+   * Top-down orthographic "satellite" render of the scene for the map (north up). Renders linear HDR to a
+   * half-float target and tone-maps on the CPU, so no material recompiles; fog, sky and `hide` objects
+   * are switched off for the shot.
+   */
+  renderTopDown(cx: number, cz: number, half: number, size: number, hide: Object3D[]): HTMLCanvasElement {
+    const px = Math.max(256, Math.min(2048, Math.floor(size)));
+    const rt = new WebGLRenderTarget(px, px, { type: HalfFloatType, samples: 4, depthBuffer: true });
+    const cam = new OrthographicCamera(-half, half, half, -half, 100, 20000);
+    cam.position.set(cx, 9000, cz);
+    cam.up.set(0, 0, -1);
+    cam.lookAt(cx, 0, cz);
+    cam.updateMatrixWorld();
+    const fog = atmoUniforms.uAtmoFogDensity!.value as number;
+    atmoUniforms.uAtmoFogDensity!.value = 0;
+    const was = hide.map((o) => o.visible);
+    hide.forEach((o) => (o.visible = false));
+    const skyWas = this.sky.visible;
+    this.sky.visible = false;
+    const bg = this.scene.background;
+    this.scene.background = null;
+    const r = this.renderer;
+    const prevClear = r.getClearColor(new Color());
+    const prevAlpha = r.getClearAlpha();
+    r.setClearColor(new Color(0.03, 0.09, 0.15), 1);
+    r.setRenderTarget(rt);
+    r.clear();
+    r.render(this.scene, cam);
+    const buf = new Uint16Array(px * px * 4);
+    r.readRenderTargetPixels(rt, 0, 0, px, px, buf);
+    r.setRenderTarget(null);
+    r.setClearColor(prevClear, prevAlpha);
+    this.scene.background = bg;
+    this.sky.visible = skyWas;
+    hide.forEach((o, i) => (o.visible = was[i]!));
+    atmoUniforms.uAtmoFogDensity!.value = fog;
+    rt.dispose();
+    // ACES (Narkowicz) + sRGB, flipped to image rows.
+    const out = document.createElement('canvas');
+    out.width = out.height = px;
+    const ctx = out.getContext('2d')!;
+    const img = ctx.createImageData(px, px);
+    const d = img.data;
+    const exposure = 0.9;
+    const tm = (x: number) => {
+      const v = Math.max(0, x * exposure);
+      const a = (v * (2.51 * v + 0.03)) / (v * (2.43 * v + 0.59) + 0.14);
+      const c = Math.min(1, Math.max(0, a));
+      return Math.round(255 * (c <= 0.0031308 ? 12.92 * c : 1.055 * Math.pow(c, 1 / 2.4) - 0.055));
+    };
+    for (let y = 0; y < px; y++) {
+      const src = (px - 1 - y) * px * 4;
+      const dst = y * px * 4;
+      for (let x = 0; x < px; x++) {
+        const s = src + x * 4;
+        const o = dst + x * 4;
+        d[o] = tm(DataUtils.fromHalfFloat(buf[s]!));
+        d[o + 1] = tm(DataUtils.fromHalfFloat(buf[s + 1]!));
+        d[o + 2] = tm(DataUtils.fromHalfFloat(buf[s + 2]!));
+        d[o + 3] = 255;
+      }
+    }
+    ctx.putImageData(img, 0, 0);
+    return out;
   }
 
   dispose(): void {

@@ -109,4 +109,25 @@ export class GradeEffect extends Effect {
   setNumber(name: 'uSat' | 'uSplit' | 'uContrast', v: number): void {
     (this.uniforms.get(name) as Uniform<number>).value = v;
   }
+
+  setVec(name: 'uLift' | 'uGamma' | 'uGain' | 'uShadowTint' | 'uHighTint', x: number, y: number, z: number): void {
+    (this.uniforms.get(name) as Uniform<Vector3>).value.set(x, y, z);
+  }
+
+  /** Photo-mode looks. 'natural' restores the game grade. */
+  applyFilter(f: 'natural' | 'golden' | 'noir' | 'vivid' | 'comic'): void {
+    const L: Record<string, { sat: number; con: number; split: number; gain: [number, number, number]; lift: [number, number, number] }> = {
+      natural: { sat: 1.04, con: 1.04, split: 0.5, gain: [1.03, 1.0, 0.97], lift: [0.012, 0.014, 0.022] },
+      golden: { sat: 1.12, con: 1.06, split: 0.8, gain: [1.12, 1.0, 0.84], lift: [0.02, 0.012, 0.0] },
+      noir: { sat: 0.0, con: 1.28, split: 0.0, gain: [1.0, 1.0, 1.0], lift: [0.0, 0.0, 0.0] },
+      vivid: { sat: 1.32, con: 1.1, split: 0.45, gain: [1.04, 1.0, 0.98], lift: [0.008, 0.01, 0.018] },
+      comic: { sat: 1.5, con: 1.2, split: 0.25, gain: [1.06, 1.02, 0.96], lift: [0.03, 0.03, 0.05] },
+    };
+    const l = L[f] ?? L.natural!;
+    this.setNumber('uSat', l.sat);
+    this.setNumber('uContrast', l.con);
+    this.setNumber('uSplit', l.split);
+    this.setVec('uGain', ...l.gain);
+    this.setVec('uLift', ...l.lift);
+  }
 }
